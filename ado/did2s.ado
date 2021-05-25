@@ -12,19 +12,40 @@ program define did2s, eclass
     *-> Setup
 
         version 13
-        syntax varlist(min=1 max=1 numeric) [if] [in], [first_stage(varlist fv) treat_formula(varlist fv) treat_var(varname)]
+        syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw], first_stage(varlist fv) treat_formula(varlist fv) treat_var(varname) [VCE(passthru) Robust CLuster(passthru)]
 
         * to use
         tempvar touse
         mark `touse' `if' `in'
+
+        * https://blog.stata.com/2016/01/19/programming-an-estimation-command-in-stata-adding-robust-and-cluster-robust-vces-to-our-mata-based-ols-command/
+        _vce_parse `touse' , optlist(Robust) argoptlist(CLuster) : [`weight'`exp'], `vce' `robust' `cluster'
+        local vce        "`r(vce)'"
+        local clustervar "`r(cluster)'"
+        
+        if "`clustervar'" != "" {
+            capture confirm numeric variable `clustervar'
+            if _rc {
+                display in red "invalid vce() option"
+                display in red "cluster variable {bf:`clustervar'} is " ///
+                    "string variable instead of a numeric variable"
+                exit(198)
+            }
+            sort `clustervar'
+        }
 
     *-> First Stage 
 
         fvrevar `first_stage'
         local full_first_stage `r(varlist)'
 
-        * First stage regression
-        qui reg `varlist' `full_first_stage' if `touse' & `treat_var' == 0, nocons robust
+        * First stage regression (with clustering and weights)
+        if "`clustervar'" != "" {
+            qui reg `varlist' `full_first_stage' [`weight'`exp'] if `touse' & `treat_var' == 0, nocons vce(cluster `clustervar')
+        }
+        else {
+            qui reg `varlist' `full_first_stage' [`weight'`exp'] if `touse' & `treat_var' == 0, nocons robust 
+        }
 
         * Store reg results
         tempname b_first V_first noomit omit
@@ -68,7 +89,13 @@ program define did2s, eclass
         local full_second_stage `r(varlist)'
 
         * Second stage regression
-        qui reg `adj' `full_second_stage' if `touse', nocons robust
+        if "`clustervar'" != "" {
+            qui reg `adj' `full_second_stage' [`weight'`exp'] if `touse', nocons vce(cluster `clustervar')
+        }
+        else {
+            qui reg `adj' `full_second_stage' [`weight'`exp'] if `touse', nocons robust
+        }
+        
 
         * Store reg results
         tempname b_second V_second noomit omit
@@ -127,7 +154,7 @@ program define did2s, eclass
         tempname b V_final
 
         * Second stage regression (with pretty display)
-        qui reg `adj' `treat_formula' if `touse', nocons robust depname(`varlist')
+        qui reg `adj' `treat_formula' [`weight'`exp'] if `touse', nocons robust depname(`varlist')
         matrix `b' = e(b)
         local V_names: rownames e(V)
         local N = e(N)
@@ -146,27 +173,15 @@ program define did2s, eclass
         ereturn post `b' `V_final', esample(`touse')
         ereturn local cmdline `"`0'"'
         ereturn local cmd "did2s"
+        ereturn local  vce      "`vce'"
+        ereturn local  vcetype  "`vcetype'"
+        ereturn local  clustvar "`clustervar'"
         ereturn scalar N = `N'
         * ereturn scalar r2 = `r2'
         * ereturn scalar r2_a = `r2_a'
         * ereturn scalar F = `F'
 
         ereturn display
-end
-
-capture program drop Display
-program Display
-        version 9
-        local version : di "version " string(_caller()) ":"
-        syntax [, Level(cilevel) noHEader * ]
-        _get_diopts diopts options , `options'
-        if "`e(prefix)'" != "" {
-                _prefix_display, level(`level') `header' `diopts' `options'
-        }
-        else {
-                `version' _regress, level(`level') `header' `diopts' `options'
-                _prefix_footnote
-        }
 end
 
 

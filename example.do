@@ -10,7 +10,10 @@ do ado/did2s.ado
 * Static
 ********************************************************************************
 
-did2s dep_var, first_stage(i.state i.year) treat_formula(i.treat) treat_var(treat)
+gen u = runiform()
+gen pw = 1/u
+
+did2s dep_var, first_stage(i.state i.year) treat_formula(i.treat) treat_var(treat) vce(cluster state)
 
 * Example esttab
 esttab, nobaselevels se

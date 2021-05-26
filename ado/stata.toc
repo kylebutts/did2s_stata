@@ -1,0 +1,8 @@
+v 0.1
+d Program by Kyle Butts
+d buttskyle96@gmail.com
+d https://www.kylebutts.com
+
+d 'did2s': Run two-stage differnece-in-differences following Gardner (2021)
+
+p Run two-stage differnece-in-differences following Gardner (2021)

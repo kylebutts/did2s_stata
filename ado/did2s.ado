@@ -171,6 +171,7 @@ program define did2s, eclass
 
         ereturn clear
         ereturn post `b' `V_final', esample(`touse')
+        ereturn local depvar `varlist'
         ereturn local cmdline `"`0'"'
         ereturn local cmd "did2s"
         ereturn local  vce      "`vce'"

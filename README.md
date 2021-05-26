@@ -11,7 +11,9 @@ problem of staggered treatment adoption.
 
 You can install did2s from github with:
 
-    devtools::install_github("kylebutts/did2s")
+    net install did2s, from("https://raw.githubusercontent.com/kylebutts/did2s_stata/main/ado/")
+    * ssc install did2s
+
 
 ## Two-stage Difference-in-differences (Gardner 2021)
 

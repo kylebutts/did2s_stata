@@ -1,12 +1,5 @@
 *! version 0.1
 
-
-* local varlist dep_var
-* local first_stage i.state i.year
-* local treat_formula i.treat
-* local treat_var treat
-
-
 capture program drop did2s
 program define did2s, eclass
     *-> Setup

@@ -7,15 +7,11 @@
 {pstd}
 {bf:did2s} - Estimates a TWFE model using the two-stage difference-in-differences approach from {browse "https://jrgcmu.github.io/2sdd_current.pdf":Gardner (2021)}
 
-
 {marker syntax}{...}
 {title:Syntax}
 
 {phang2}
 {cmd:did2s} {depvar}{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:treat_formula(}{help varlist}{cmd:)} {cmdab:treat_var(}{help varname}{cmd:)} [{it:options}]
-
-
-
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
@@ -28,7 +24,6 @@
 {synopt :{opth vce(vcetype)}}{it:vcetype} may be {bf: robust} or {bf:cluster}.{p_end}
 {synoptline}
 {p2colreset}{...}
-
 
 
 {title:Description}
@@ -91,7 +86,6 @@ The fixed effects could be biased/inconsistent if there are anticipation effects
 {p2colreset}{...}
 
 
-
 {title:Program Author}
 
 {pstd}
@@ -99,13 +93,12 @@ Kyle Butts   {break}
 University of Colorado, Boulder      {break}
 buttskyle96@gmail.com     {break}
 
+
 {title:References}
 
 {phang}
 Gardner (2021), {browse "https://jrgcmu.github.io/2sdd_current.pdf":Two-stage Difference-in-differences}
 {p_end}
-
-
 
 
 

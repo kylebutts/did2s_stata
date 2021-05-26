@@ -29,15 +29,13 @@
 {title:Description}
 
 {pstd}
-{bf:did2s} implements Two-Staged Difference-in-Differences by Garener (2021). A TWFE model for outcomes is given by unit/group fixed effects, time fixed effects, treatment variable (or variables in the case of event study), and potentially covariates. To avoid the problems with OLS estimation of difference-in-differences/event-studies in the presence of staggered treatment adoption, this method proceeds in two stages:
-{p_end}
+{bf:did2s} implements Two-Staged Difference-in-Differences by Garener (2021). A TWFE model for outcomes is given by unit/group fixed effects, time fixed effects, treatment variable (or variables in the case of event study), and potentially covariates. To avoid the problems with OLS estimation of difference-in-differences/event-studies in the presence of staggered treatment adoption, this method proceeds in two stages:{p_end}
 
 {phang2}
-1. This program estimates the unit/group fixed effects, time fixed effects, and potentially covariates using only untreated/not-yet-treated observations. This is used to predict counterfactual outcomes in all periods and residualize the observed outcome.
-{p_end}
+1. This program estimates the unit/group fixed effects, time fixed effects, and potentially covariates using only untreated/not-yet-treated observations. This is used to predict counterfactual outcomes in all periods and residualize the observed outcome.{p_end}
+
 {phang2}
-2. Then regress the residualized outcome on the treatment variable(s) to estimate the treatment effects.
-{p_end}
+2. Then regress the residualized outcome on the treatment variable(s) to estimate the treatment effects.{p_end}
 
 {pstd}
 More details can be found in {browse "https://jrgcmu.github.io/2sdd_current.pdf":Gardner (2021)} or more informally in {browse "https://kylebutts.com/blog/posts/2021-05-24-two-stage-difference-in-differences/":this blog post}. 

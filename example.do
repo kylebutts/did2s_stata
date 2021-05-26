@@ -2,7 +2,7 @@
 * Example with simulated data
 ********************************************************************************
 
-use data/df_hom.dta, clear
+use ado/data/df_hom.dta, clear
 
 do ado/did2s.ado
 

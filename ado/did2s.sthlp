@@ -11,7 +11,7 @@
 {title:Syntax}
 
 {phang2}
-{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:treat_formula(}{help varlist}{cmd:)} {cmdab:treat_var(}{help varname}{cmd:)} {cmdab:cluster_var(}{help varname}}{cmd:)} [{cmdab:nboot(}real{cmd:)}]
+{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:treat_formula(}{help varlist}{cmd:)} {cmdab:treat_var(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)}
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
@@ -20,8 +20,7 @@
 {synopt :{opth first_stage(varlist)}}Fixed effects and covariates that will be used to estimate counterfactual Y_it(0). This should be everything besides treatment variables.{p_end}
 {synopt :{opth treat_formula(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
 {synopt :{opth treat_var(varname)}}This must be a 0/1 dummy for when treatment is occuring (D_it). See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation.{p_end}
-{synopt :{opth cluster_var(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
-{syntab:Options}
+{synopt :{opth cluster(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
 {synoptline}
 {p2colreset}{...}
 

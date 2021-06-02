@@ -4,7 +4,7 @@
 
 use https://github.com/kylebutts/did2s_stata/raw/main/data/df_hom.dta, clear
 
-* net install did2s, from("https://raw.githubusercontent.com/kylebutts/did2s_stata/main/ado/")
+* net install did2s, from("https://raw.githubusercontent.com/kylebutts/did2s_stata/main/ado/") replace
 do ado/did2s.ado
 
 ********************************************************************************

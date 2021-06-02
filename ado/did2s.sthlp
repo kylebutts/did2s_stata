@@ -1,5 +1,5 @@
 {smcl}
-{it:v. 0.1.0} 
+{it:v. 0.1.1} 
 {viewerjumpto "Anticipation" "did2s##anticipation"}{...}
 
 {title:Two-Stage Difference-in-Differences}
@@ -11,17 +11,17 @@
 {title:Syntax}
 
 {phang2}
-{cmd:did2s} {depvar}{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:treat_formula(}{help varlist}{cmd:)} {cmdab:treat_var(}{help varname}{cmd:)} [{it:options}]
+{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:treat_formula(}{help varlist}{cmd:)} {cmdab:treat_var(}{help varname}{cmd:)} {cmdab:cluster_var(}{help varname}}{cmd:)} [{cmdab:nboot(}real{cmd:)}]
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
 {synoptline}
 {syntab:Model}
-{synopt :{opth first_stage(varlist)}}Fixed effects and covariates that will be used to estimate counterfactual Y_it(0){p_end}
-{synopt :{opth treat_formula(varlist)}}List of treatment dummies. This could be for example a 0/1 Treat dummy or a set of event-study leads/lags.{p_end}
-{synopt :{opth treat_var(varname)}}This must be a 0/1 dummy for when treatment is occuring. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation.{p_end}
-{syntab:SE/Robust}
-{synopt :{opth vce(vcetype)}}{it:vcetype} may be {bf: robust} or {bf:cluster}.{p_end}
+{synopt :{opth first_stage(varlist)}}Fixed effects and covariates that will be used to estimate counterfactual Y_it(0). This should be everything besides treatment variables.{p_end}
+{synopt :{opth treat_formula(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
+{synopt :{opth treat_var(varname)}}This must be a 0/1 dummy for when treatment is occuring (D_it). See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation.{p_end}
+{synopt :{opth cluster_var(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
+{syntab:Options}
 {synoptline}
 {p2colreset}{...}
 
@@ -29,7 +29,7 @@
 {title:Description}
 
 {pstd}
-{bf:did2s} implements Two-Staged Difference-in-Differences by Garener (2021). A TWFE model for outcomes is given by unit/group fixed effects, time fixed effects, treatment variable (or variables in the case of event study), and potentially covariates. To avoid the problems with OLS estimation of difference-in-differences/event-studies in the presence of staggered treatment adoption, this method proceeds in two stages:{p_end}
+{bf:did2s} implements Two-Staged Difference-in-Differences by Gardner (2021). A TWFE model for outcomes is given by unit/group fixed effects, time fixed effects, treatment variable (or variables in the case of event study), and potentially covariates. To avoid the problems with OLS estimation of difference-in-differences/event-studies in the presence of staggered treatment adoption, this method proceeds in two stages:{p_end}
 
 {phang2}
 1. This program estimates the unit/group fixed effects, time fixed effects, and potentially covariates using only untreated/not-yet-treated observations. This is used to predict counterfactual outcomes in all periods and residualize the observed outcome.{p_end}
@@ -52,6 +52,26 @@ This procedure works so long as μ_i and μ_t are consistently estimated. The ke
 {pstd}
 The fixed effects could be biased/inconsistent if there are anticipation effects, i.e. units respond before treatment starts. The fix is fairly simple, simply “shift” treatment date earlier by as many years as you suspect anticipation to occur (e.g. 2 years before treatment starts) and estimate on the subsample where the shifted treatment equals zero. If you suspect there is anticipation, pass this modified variable to {bf: treat_var}.
 {p_end}
+
+
+{title:Examples:}
+
+{pstd}Setup{p_end}
+{phang2}{cmd:. use https://github.com/kylebutts/did2s_stata/raw/main/data/df_hom.dta, clear}{p_end}
+
+{pstd}Static Model{p_end}
+{phang2}{cmd:. did2s dep_var, first_stage(i.unit i.year) treat_formula(i.treat) treat_var(treat) cluster_var(state) nboot(10)}{p_end}
+
+{pstd}Event Study Model{p_end}
+{phang2}{cmd:. gen rel_year_shift = rel_year + 20}{p_end}
+{phang2}{cmd:. did2s dep_var, first_stage(i.unit i.year) treat_formula(i.rel_year_shift) treat_var(treat) cluster_var(state) nboot(10)}{p_end}
+
+{pstd}With Covariates{p_end}
+{phang2}{cmd:. use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear}{p_end}
+{phang2}{cmd:. global xvar l_police unemployrt poverty l_income l_prisoner l_lagprisoner blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44 l_exp_subsidy l_exp_pubwelfare}{p_end}
+{phang2}{cmd:. did2s l_homicide, first_stage(i.sid i.year $xvar) treat_formula(i.post) treat_var(post) cluster_var(sid) nboot(10)}{p_end}
+
+
 
 
 {marker results}{...}

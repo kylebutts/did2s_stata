@@ -26,7 +26,7 @@ program define did2s, eclass
         local full_first_stage `r(varlist)'
 
         * First stage regression (with clustering and weights)
-        qui reg `varlist' `full_first_stage' [`weight'`exp'] if `touse' & `treat_var' == 0, nocons vce(cluster `cluster')
+        qui reg `varlist' `full_first_stage' [`weight'`exp'] if `touse' & `treat_var' == 0, vce(cluster `cluster')
 
         * Residualize outcome variable
         tempvar adj

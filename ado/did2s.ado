@@ -22,7 +22,7 @@ program define did2s, eclass
 
     *-> First Stage 
 
-        fvrevar `first_stage'
+        fvrevar `first_stage' if `touse' & `treat_var' == 0
         local full_first_stage `r(varlist)'
 
         * First stage regression (with clustering and weights)
@@ -30,7 +30,7 @@ program define did2s, eclass
 
         * Residualize outcome variable
         tempvar adj
-        predict double `adj', residual
+        predict double `adj' if `touse', residual
 
         **-> Get names of non-omitted variables
             * https://www.stata.com/support/faqs/programming/factor-variable-support/
@@ -57,11 +57,11 @@ program define did2s, eclass
 
         **-> Create first_u, with 0s in row where D_it = 1
         tempvar first_u
-        gen `first_u' = `adj' * (1 - `treat_var')
+        qui gen `first_u' = `adj' * (1 - `treat_var') if `touse'
 
     *-> Second Stage
 
-        fvrevar `treat_formula'
+        fvrevar `treat_formula' if `touse'
         local full_second_stage `r(varlist)'
 
         * Second stage regression
@@ -94,7 +94,7 @@ program define did2s, eclass
 
         **-> Create first_u, with 0s in row where D_it = 1
         tempvar second_u
-        predict double `second_u', residual 
+        predict double `second_u' if `touse', residual 
             
 
     *-> Standard Error Adjustment

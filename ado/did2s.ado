@@ -5,7 +5,7 @@ program define did2s, eclass
     *-> Setup
 
         version 13
-        syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw], first_stage(varlist fv) treat_formula(varlist fv) treat_var(varname) cluster(varname)
+        syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw], first_stage(varlist fv) second_stage(varlist fv) treatment(varname) cluster(varname)
 
         * to use
         tempvar touse
@@ -26,7 +26,7 @@ program define did2s, eclass
         local full_first_stage `r(varlist)'
 
         * First stage regression (with clustering and weights)
-        qui reg `varlist' `full_first_stage' [`weight'`exp'] if `touse' & `treat_var' == 0, vce(cluster `cluster')
+        qui reg `varlist' `full_first_stage' [`weight'`exp'] if `touse' & `treatment' == 0, vce(cluster `cluster')
 
         * Residualize outcome variable
         tempvar adj
@@ -57,11 +57,11 @@ program define did2s, eclass
 
         **-> Create first_u, with 0s in row where D_it = 1
         tempvar first_u
-        qui gen `first_u' = `adj' * (1 - `treat_var') if `touse'
+        qui gen `first_u' = `adj' * (1 - `treatment') if `touse'
 
     *-> Second Stage
 
-        fvrevar `treat_formula' if `touse'
+        fvrevar `second_stage' if `touse'
         local full_second_stage `r(varlist)'
 
         * Second stage regression
@@ -100,13 +100,13 @@ program define did2s, eclass
     *-> Standard Error Adjustment
         
         * Create initialized matrix
-        mata: V = construct_V("`treat_var'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", `n_non_omit_second')
+        mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", `n_non_omit_second')
 
     *-> Export
         tempname b V_final
 
         * Second stage regression (with pretty display)
-        qui reg `adj' `treat_formula' [`weight'`exp'] if `touse', nocons robust depname(`varlist')
+        qui reg `adj' `second_stage' [`weight'`exp'] if `touse', nocons robust depname(`varlist')
         matrix `b' = e(b)
         local V_names: rownames e(V)
         local N = e(N)
@@ -142,11 +142,11 @@ version 13
 capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
 mata: 
-    matrix construct_V(string scalar treat_var_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, real scalar n2) {
+    matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, real scalar n2) {
         real colvector treat, cluster_var, first_u, second_u, cl, idx
         real matrix X1, X2, X10, V, meat, W, cov
 
-        st_view(treat = ., ., treat_var_str, touse_str)
+        st_view(treat = ., ., treatment_str, touse_str)
         st_view(cluster_var = ., ., cluster_str, touse_str)
         st_view(first_u = ., ., first_u_str, touse_str)
         st_view(second_u = ., ., second_u_str, touse_str)
@@ -155,7 +155,7 @@ mata:
         st_view(X2 = ., ., vars_second_str, touse_str)
 
         /* For Testing
-        st_view(treat = ., ., "`treat_var'", "`touse'")
+        st_view(treat = ., ., "`treatment'", "`touse'")
         st_view(cluster_var = ., ., "`cluster'", "`touse'")
         st_view(first_u = 0, ., "`first_u'", "`touse'")
         st_view(second_u = 0, ., "`second_u'", "`touse'")

@@ -22,7 +22,7 @@ program define did2s, eclass
 
     *-> First Stage 
 
-        fvrevar `first_stage' if `touse' & `treat_var' == 0
+        fvrevar `first_stage' if `touse' & `treatment' == 0
         local full_first_stage `r(varlist)'
 
         * First stage regression (with clustering and weights)

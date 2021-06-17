@@ -10,6 +10,7 @@ knitr::opts_chunk$set(
   fig.path = "man/figures/README-",
   out.width = "100%"
 )
+# devtools::install_github("Hemken/Statamarkdown")
 library(Statamarkdown)
 ```
 
@@ -18,14 +19,14 @@ library(Statamarkdown)
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of did2s is to estimate TWFE models without running into the problem of staggered treatment adoption. For details on the methodology, view this [vignette](http://kylebutts.com/did2s/articles/Two-Stage-Difference-in-Differences.html)
+The goal of did2s is to estimate TWFE models without running into the problem caused by staggered treatment adoption. For details on the methodology, view this [vignette](http://kylebutts.com/did2s/articles/Two-Stage-Difference-in-Differences.html)
 
 ## Installation
 
 You can install did2s from github with:
 
-``` stata
-net install did2s, from("https://raw.githubusercontent.com/kylebutts/did2s_stata/main/ado/")
+```stata
+net install did2s, replace from("https://raw.githubusercontent.com/kylebutts/did2s_stata/main/ado/")
 * ssc install did2s
 ```
 
@@ -33,11 +34,11 @@ net install did2s, from("https://raw.githubusercontent.com/kylebutts/did2s_stata
 
 I have created an Stata package with the help of John Gardner to estimate the two-stage procedure. The command is `did2s` which estimates the two-stage did procedure. This function requires the following syntax
 
-`did2s depvar [if] [in] [weight], first_stage(varlist) treat_formula(varlist) treat_var(varname) cluster(varname)`
+`did2s depvar [if] [in] [weight], first_stage(varlist) second_stage(varlist) treatment(varname) cluster(varname)`
 
 - `first_stage`: formula for first stage, can include fixed effects and covariates, but do not include treatment variable(s)!
-- `treat_formula`: Second stage, these should be the treatment indicator(s) (e.g. treatment variable or es leads/lags), use i() for factor variables, following fixest::feols.
-- `treat_var`: This has to be the 0/1 treatment variable that marks when treatment turns on for a unit. If you suspect anticipation, see note above for accounting for this.
+- `second_stage`: List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable
+- `treatment`: This has to be the 0/1 treatment variable that marks when treatment turns on for a unit. If you suspect anticipation, see note above for accounting for this.
 - `cluster`: Which variable to cluster on.
 
 
@@ -59,14 +60,19 @@ qui reg dep_var i.state i.year if treat == 0, nocons
 predict adj, residuals
 reg adj i.treat, cluster(state) nocons
 
+```
+
+```{stata, echo=-2}
+
+use data/df_het.dta
 
 * With did2s standard error correction	
-did2s dep_var, first_stage(i.state i.year) treat_formula(i.treat) treat_var(treat) cluster(state)
+did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)
 
 
 ```
 
-You can also do event-study by changing the `treat_formula`
+You can also do event-study by changing the `second_stage`
 
 ```{stata}
 use data/df_het.dta
@@ -75,7 +81,7 @@ use data/df_het.dta
 gen rel_year_shift = rel_year + 20
 replace rel_year_shift = 100 if rel_year_shift == .
 
-did2s dep_var, first_stage(i.state i.year) treat_formula(ib100.rel_year_shift) treat_var(treat) cluster(state)
+did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)
 ```
 
 
@@ -93,10 +99,10 @@ use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear
 global demo blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44
 
 * No Covariates
-did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) treat_formula(i.post) treat_var(post) cluster(sid)
+did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
 
 * Covariates
-did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) treat_formula(i.post) treat_var(post) cluster(sid)
+did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)
 
 ```
 

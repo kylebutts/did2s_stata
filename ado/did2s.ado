@@ -100,7 +100,7 @@ program define did2s, eclass
     *-> Standard Error Adjustment
         
         * Create initialized matrix
-        mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", `n_non_omit_second')
+        mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
 
     *-> Export
         tempname b V_final
@@ -142,8 +142,8 @@ version 13
 capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
 mata: 
-    matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, real scalar n2) {
-        real colvector treat, cluster_var, first_u, second_u, cl, idx
+    matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar n2) {
+        real colvector treat, cluster_var, first_u, second_u, cl, idx, weights
         real matrix X1, X2, X10, V, meat, W, cov
 
         st_view(treat = ., ., treatment_str, touse_str)
@@ -154,6 +154,15 @@ mata:
         st_view(X1 = ., ., vars_first_str, touse_str)
         st_view(X2 = ., ., vars_second_str, touse_str)
 
+        if(weights_str != "") {
+            st_view(weights = ., ., substr(weights_str, 3))
+            
+            first_u = sqrt(weights) :* first_u 
+            second_u = sqrt(weights) :* second_u
+            X1 = diag(sqrt(weights)) * X1
+            X2 = diag(sqrt(weights)) * X2
+        }
+
         /* For Testing
         st_view(treat = ., ., "`treatment'", "`touse'")
         st_view(cluster_var = ., ., "`cluster'", "`touse'")
@@ -162,6 +171,8 @@ mata:
         st_view(X1 = ., ., "`vars_first'", "`touse'")
         st_view(X2 = ., ., "`vars_second'", "`touse'")
         n2 = `n_non_omit_second'
+
+        st_view(weights = ., ., "`exp'")
         */
         
         /* Create X10 */

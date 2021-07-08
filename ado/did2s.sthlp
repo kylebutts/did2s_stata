@@ -1,5 +1,5 @@
 {smcl}
-{it:v. 0.1.1} 
+{it:v. 0.2} 
 {viewerjumpto "Anticipation" "did2s##anticipation"}{...}
 
 {title:Two-Stage Difference-in-Differences}

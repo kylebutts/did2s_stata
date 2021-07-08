@@ -1,4 +1,4 @@
-*! version 0.1
+*! version 0.2
 
 capture program drop did2s
 program define did2s, eclass

@@ -92,7 +92,7 @@ program define did2s, eclass
             * get number of 2nd stage variables 
             local n_non_omit_second: word count `vars_second'
 
-        **-> Create first_u, with 0s in row where D_it = 1
+        **-> Create second_u
         tempvar second_u
         predict double `second_u' if `touse', residual 
             
@@ -142,7 +142,7 @@ version 13
 capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
 mata: 
-    matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar n2) {
+    matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
         real colvector treat, cluster_var, first_u, second_u, cl, idx, weights
         real matrix X1, X2, X10, V, meat, W, cov
 
@@ -156,11 +156,9 @@ mata:
 
         if(weights_str != "") {
             st_view(weights = ., ., substr(weights_str, 3))
-            
-            first_u = sqrt(weights) :* first_u 
-            second_u = sqrt(weights) :* second_u
-            X1 = diag(sqrt(weights)) * X1
-            X2 = diag(sqrt(weights)) * X2
+        } 
+        else {
+            weights = J(rows(X1), 1, 1)
         }
 
         /* For Testing
@@ -170,37 +168,50 @@ mata:
         st_view(second_u = 0, ., "`second_u'", "`touse'")
         st_view(X1 = ., ., "`vars_first'", "`touse'")
         st_view(X2 = ., ., "`vars_second'", "`touse'")
-        n2 = `n_non_omit_second'
+        k2 = `n_non_omit_second'
 
-        st_view(weights = ., ., "`exp'")
+        st_view(weights = ., ., substr("`exp'", 3))
         */
         
         /* Create X10 */
-        X10 = X1
-        for(i=1; i <= rows(X1); i++) {
-            if(treat[i] == 1) {
-                X10[i,] = X10[i,] :* 0
-            }
-        }
+        st_select(X10 = ., X1, treat :== 0)       
+        st_select(weights_0 = ., weights, treat :== 0)
 
         /* Only calculate this part once */
-        V = X2' * X1 * invsym(X10' * X10)
+        V = cross(X2, weights, X1) * invsym(cross(X10, weights_0, X10))
 
         cl = uniqrows(cluster_var)
 
         /* Initialize meat */
-        meat = J(n2, n2, 0)
+        meat = J(k2, k2, 0)
 
-        /* real colvector temp_first_u, temp_second_u */
+        /* Fill in meat */
+        X10_sub = X2_sub = second_u_sub = first_u_sub =.
+        weights_sub = weights_0_sub = .
+
         for(i=1; i <= length(cl); i++) {
             idx = cluster_var :== cl[i]
-        
-            W = select(X2, idx)' * select(second_u , idx) - V * select(X10, idx)' * select(first_u, idx)
+            /* Only rows with treat :== 1 */
+            idx0 = idx :& treat :== 0
+
+            /* st_select */
+            st_select(X2_sub, X2, idx)
+            st_select(second_u_sub, second_u , idx)
+
+            st_select(X10_sub, X1, idx0)
+            st_select(first_u_sub, first_u, idx0)
+
+            st_select(weights_sub, weights, idx)
+            st_select(weights_0_sub, weights, idx0)
+
+
+            W = cross(X2_sub, weights_sub, second_u_sub) - V * cross(X10_sub, weights_0_sub, first_u_sub)
 
             meat = meat + W * W'
         }
 
-        cov = invsym(X2'*X2) * meat * invsym(X2'*X2)
+        invX2X2 = invsym(cross(X2, weights, X2))
+        cov = invX2X2 * meat * invX2X2
 
         return(cov)
     }

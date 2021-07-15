@@ -155,7 +155,7 @@ mata:
         st_view(X2 = ., ., vars_second_str, touse_str)
 
         if(weights_str != "") {
-            st_view(weights = ., ., substr(weights_str, 3))
+            st_view(weights = ., ., substr(weights_str, 3), touse_str)
         } 
         else {
             weights = J(rows(X1), 1, 1)

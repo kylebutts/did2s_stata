@@ -176,6 +176,39 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i
 ------------------------------------------------------------------------------
 ```
 
+### Bootstrapping Standard Errors
+
+``` stata
+use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear
+xtset sid
+bootstrap _b[1.post], cluster(sid) idcluster(newid) reps(250): did2s l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
+       panel variable:  sid (balanced)
+
+(running did2s on estimation sample)
+
+Bootstrap replications (250)
+----+--- 1 ---+--- 2 ---+--- 3 ---+--- 4 ---+--- 5 
+..................................................    50
+..................................................   100
+..................................................   150
+..................................................   200
+..................................................   250
+
+Bootstrap results                               Number of obs     =        550
+                                                Replications      =        250
+
+      command:  did2s l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
+        _bs_1:  _b[1.post]
+
+                                    (Replications based on 50 clusters in sid)
+------------------------------------------------------------------------------
+             |   Observed   Bootstrap                         Normal-based
+             |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+       _bs_1 |   .0668998   .0559934     1.19   0.232    -.0428451    .1766448
+------------------------------------------------------------------------------
+```
+
 ## References
 
 <div id="refs" class="references csl-bib-body hanging-indent">

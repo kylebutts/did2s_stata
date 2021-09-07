@@ -107,5 +107,14 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i
 ```
 
 
+### Bootstrapping Standard Errors
+
+```{stata}
+use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear
+xtset sid
+bootstrap _b[1.post], cluster(sid) idcluster(newid) reps(250): did2s l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
+```
+
+
 ## References
 

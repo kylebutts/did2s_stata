@@ -59,16 +59,18 @@ The fixed effects could be biased/inconsistent if there are anticipation effects
 {phang2}{cmd:. use https://github.com/kylebutts/did2s_stata/raw/main/data/df_hom.dta, clear}{p_end}
 
 {pstd}Static Model{p_end}
-{phang2}{cmd:. did2s dep_var, first_stage(i.unit i.year) treat_formula(i.treat) treat_var(treat) cluster_var(state) nboot(10)}{p_end}
+{phang2}{cmd:. did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)}{p_end}
 
 {pstd}Event Study Model{p_end}
 {phang2}{cmd:. gen rel_year_shift = rel_year + 20}{p_end}
-{phang2}{cmd:. did2s dep_var, first_stage(i.unit i.year) treat_formula(i.rel_year_shift) treat_var(treat) cluster_var(state) nboot(10)}{p_end}
+{phang2}{cmd:. replace rel_year_shift = 100 if rel_year_shift == .}{p_end}
+{phang2}{cmd:. did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)}{p_end}
 
 {pstd}With Covariates{p_end}
 {phang2}{cmd:. use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear}{p_end}
-{phang2}{cmd:. global xvar l_police unemployrt poverty l_income l_prisoner l_lagprisoner blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44 l_exp_subsidy l_exp_pubwelfare}{p_end}
-{phang2}{cmd:. did2s l_homicide, first_stage(i.sid i.year $xvar) treat_formula(i.post) treat_var(post) cluster_var(sid) nboot(10)}{p_end}
+{phang2}{cmd:. global demo blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44}{p_end}
+{phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
+{phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 
 
 

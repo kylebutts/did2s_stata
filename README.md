@@ -176,36 +176,64 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i
 ------------------------------------------------------------------------------
 ```
 
-### Bootstrapping Standard Errors
+### Large Datasets or Many Fixed Effects
+
+There are some situations where standard errors can not be calculate
+analytically in memory. The reason for this is that the analytic
+standard errors require the creation of the matrix containing all the
+fixed effects used in estimation. When there are a lot of observations
+and/or many fixed effects, this matrix can’t be stored in memory.
+
+In this case, it’s possible to obtain standard errors via bootstrapping
+a custom program. Here is an example for the example data. You could
+spend time to make the command more programmable with args, but I find
+it easier to just write the estimation out.
 
 ``` stata
-use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear
-xtset sid
-bootstrap _b[1.post], cluster(sid) idcluster(newid) reps(250): did2s l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
-       panel variable:  sid (balanced)
+use data/df_hom.dta, clear
 
-(running did2s on estimation sample)
+egen unique_id = group(state unit)
 
-Bootstrap replications (250)
+capture program drop did2s_est
+
+program did2s_est, rclass
+    version 13.0
+    regress dep_var i.new_id i.year if treat == 0
+    tempvar dep_var_resid
+    predict `dep_var_resid', residuals
+    regress `dep_var_resid' ib0.treat
+end
+
+xtset unique_id year
+sort unique_id year
+bootstrap, cluster(state) idcluster(new_id) group(unique_id) reps(100): did2s_est
+       panel variable:  unique_id (strongly balanced)
+        time variable:  year, 1990 to 2020
+                delta:  1 unit
+
+
+(running did2s_est on estimation sample)
+
+Bootstrap replications (100)
 ----+--- 1 ---+--- 2 ---+--- 3 ---+--- 4 ---+--- 5 
 ..................................................    50
 ..................................................   100
-..................................................   150
-..................................................   200
-..................................................   250
 
-Bootstrap results                               Number of obs     =        550
-                                                Replications      =        250
+Linear regression                               Number of obs     =     31,000
+                                                Replications      =        100
+                                                Wald chi2(1)      =     739.20
+                                                Prob > chi2       =     0.0000
+                                                R-squared         =     0.2279
+                                                Adj R-squared     =     0.2278
+                                                Root MSE          =     1.7302
 
-      command:  did2s l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
-        _bs_1:  _b[1.post]
-
-                                    (Replications based on 50 clusters in sid)
+                                  (Replications based on 40 clusters in state)
 ------------------------------------------------------------------------------
              |   Observed   Bootstrap                         Normal-based
-             |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+    __000001 |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
 -------------+----------------------------------------------------------------
-       _bs_1 |   .0668998   .0559934     1.19   0.232    -.0428451    .1766448
+     1.treat |    1.98256   .0729197    27.19   0.000      1.83964     2.12548
+       _cons |  -7.42e-11   4.03e-10    -0.18   0.854    -8.65e-10    7.16e-10
 ------------------------------------------------------------------------------
 ```
 

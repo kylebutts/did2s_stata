@@ -107,12 +107,30 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i
 ```
 
 
-### Bootstrapping Standard Errors
+### Large Datasets or Many Fixed Effects
+
+There are some situations where standard errors can not be calculate analytically in memory. The reason for this is that the analytic standard errors require the creation of the matrix containing all the fixed effects used in estimation. When there are a lot of observations and/or many fixed effects, this matrix can't be stored in memory.
+
+In this case, it's possible to obtain standard errors via bootstrapping a custom program. Here is an example for the example data. You could spend time to make the command more programmable with args, but I find it easier to just write the estimation out.
 
 ```{stata}
-use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear
-xtset sid
-bootstrap _b[1.post], cluster(sid) idcluster(newid) reps(250): did2s l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
+use data/df_hom.dta, clear
+
+egen unique_id = group(state unit)
+
+capture program drop did2s_est
+
+program did2s_est, rclass
+	version 13.0
+	regress dep_var i.new_id i.year if treat == 0
+	tempvar dep_var_resid
+	predict `dep_var_resid', residuals
+	regress `dep_var_resid' ib0.treat
+end
+
+xtset unique_id year
+sort unique_id year
+bootstrap, cluster(state) idcluster(new_id) group(unique_id) reps(100): did2s_est
 ```
 
 

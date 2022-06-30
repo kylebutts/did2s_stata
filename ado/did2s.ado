@@ -7,7 +7,7 @@ program define did2s, eclass
   *-> Setup
 
     version 13
-    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], first_stage(varlist fv) second_stage(varlist fv) treatment(varname) cluster(varname) 
+    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], first_stage(varlist fv) second_stage(varlist fv) TREATment(varname) cluster(varname) [ unit(varname) ] 
 
     * to use
     tempvar touse
@@ -20,27 +20,52 @@ program define did2s, eclass
       display as error "cluster variable {bf:`clustervar'} is not a numeric variable."
       exit(198)
     }
-    
-  if("`weight'" == "") {
-    local weightexp = ""
-  } 
-  else {
-    local weightexp "`weight'=`exp'"
-  }
-  disp "`weightexp'"
 
+    *** Begin dev ***
+    /* local varlist dep_var
+    local first_stage i.year
+    local second_stage treat
+    local treatment treat
+    local cluster state
+    local unit unit
+    local weight = "pw"
+    local exp = "popwt"
+    local vce "`r(vce)'"
+    tempvar touse
+    gen `touse' = 1  */
+    *** End dev ***
+
+    if("`weight'" == "") {
+      local weightexp = ""
+    } 
+    else {
+      local weightexp "`weight'=`exp'"
+    }
+    * disp "`weightexp'"
 
   *-> First Stage 
 
     fvrevar `first_stage' if `touse' & `treatment' == 0
     local full_first_stage `r(varlist)'
+    
+    * Manually demean all the first_stage vars by id (when treat == 0)
+    if("`unit'" != "") {
+      sort `unit'
+      tempvar mean mean0
+      foreach var of varlist `full_first_stage' `varlist' {
+        cap drop `mean' `mean0'
+        quietly by `unit': egen `mean0' = mean(`var') if `treatment' == 0
+        quietly by `unit': egen `mean' = median(`mean0')
+        quietly replace `var' = `var' - `mean'
+      }
+    }
 
     * First stage regression (with clustering and weights)
-    qui reg `varlist' `full_first_stage' [`weightexp'] if `touse' & `treatment' == 0, vce(cluster `cluster')
+    quietly reg `varlist' `full_first_stage' [`weightexp'] if `touse' & `treatment' == 0, vce(cluster `cluster')
 
     * Residualize outcome variable
     tempvar adj
-    predict double `adj' if `touse', residual
+    quietly predict double `adj' if `touse', residual
 
     **-> Get names of non-omitted variables
       * https://www.stata.com/support/faqs/programming/factor-variable-support/
@@ -67,7 +92,7 @@ program define did2s, eclass
 
     **-> Create first_u, with 0s in row where D_it = 1
     tempvar first_u
-    qui gen `first_u' = `adj' * (1 - `treatment') if `touse'
+    quietly gen `first_u' = `adj' * (1 - `treatment') if `touse'
 
   *-> Second Stage
 
@@ -75,7 +100,7 @@ program define did2s, eclass
     local full_second_stage `r(varlist)'
 
     * Second stage regression
-    qui reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
+    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
 
     **-> Get names of non-omitted variables
       * https://www.stata.com/support/faqs/programming/factor-variable-support/
@@ -118,7 +143,7 @@ program define did2s, eclass
     tempname b V_final
 
     * Second stage regression (with pretty display)
-    qui reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
+    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
     matrix `b' = e(b)
     local V_names: rownames e(V)
     local N = e(N)

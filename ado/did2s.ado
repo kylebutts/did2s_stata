@@ -7,7 +7,7 @@ program define did2s, eclass
   *-> Setup
 
     version 13
-    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], first_stage(varlist fv) second_stage(varlist fv) treatment(varname) cluster(varname)
+    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], first_stage(varlist fv) second_stage(varlist fv) treatment(varname) cluster(varname) 
 
     * to use
     tempvar touse
@@ -21,9 +21,14 @@ program define did2s, eclass
       exit(198)
     }
     
+  if("`weight'" == "") {
+    local weightexp = ""
+  } 
+  else {
+    local weightexp "`weight'=`exp'"
+  }
+  disp "`weightexp'"
 
-  disp "`touse'"
-  disp "`exp'"
 
   *-> First Stage 
 
@@ -31,7 +36,7 @@ program define did2s, eclass
     local full_first_stage `r(varlist)'
 
     * First stage regression (with clustering and weights)
-    qui reg `varlist' `full_first_stage' [`weight'=`exp'] if `touse' & `treatment' == 0, vce(cluster `cluster')
+    qui reg `varlist' `full_first_stage' [`weightexp'] if `touse' & `treatment' == 0, vce(cluster `cluster')
 
     * Residualize outcome variable
     tempvar adj
@@ -70,7 +75,7 @@ program define did2s, eclass
     local full_second_stage `r(varlist)'
 
     * Second stage regression
-    qui reg `adj' `full_second_stage' [`weight'=`exp'] if `touse', nocons vce(cluster `cluster')
+    qui reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
 
     **-> Get names of non-omitted variables
       * https://www.stata.com/support/faqs/programming/factor-variable-support/
@@ -113,7 +118,7 @@ program define did2s, eclass
     tempname b V_final
 
     * Second stage regression (with pretty display)
-    qui reg `adj' `second_stage' [`weight'=`exp'] if `touse', nocons robust depname(`varlist')
+    qui reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
     matrix `b' = e(b)
     local V_names: rownames e(V)
     local N = e(N)

@@ -11,7 +11,7 @@
 {title:Syntax}
 
 {phang2}
-{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treat_var(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)}
+{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)}
 
 {synoptset 20 tabbed}{...}
 {synopthdr}

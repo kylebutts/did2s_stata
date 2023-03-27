@@ -134,8 +134,6 @@ program define did2s, eclass
 
   *-> Standard Error Adjustment
     
-  pause on
-
     * Create initialized matrix
     mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
 

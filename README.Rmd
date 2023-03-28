@@ -114,7 +114,7 @@ There are some situations where standard errors can not be calculate analyticall
 In this case, it's possible to obtain standard errors via bootstrapping a custom program. Here is an example for the example data. You could spend time to make the command more programmable with args, but I find it easier to just write the estimation out.
 
 ```{stata}
-use data/df_hom.dta, clear
+use data/df_het.dta, clear
 
 egen unique_id = group(state unit)
 
@@ -125,7 +125,7 @@ program did2s_est, rclass
 	regress dep_var i.new_id i.year if treat == 0
 	tempvar dep_var_resid
 	predict `dep_var_resid', residuals
-	regress `dep_var_resid' ib0.treat
+	regress `dep_var_resid' ib0.treat, nocons
 end
 
 xtset unique_id year

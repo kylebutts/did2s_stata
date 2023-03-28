@@ -1,6 +1,4 @@
-*! version 0.3
-
-
+*! version 0.4
 
 capture program drop did2s
 program define did2s, eclass
@@ -21,32 +19,22 @@ program define did2s, eclass
       exit(198)
     }
 
-    *** Begin dev ***
-    /* local varlist dep_var
-    local first_stage i.year
-    local second_stage treat
-    local treatment treat
-    local cluster state
-    local unit unit
-    local weight = "pw"
-    local exp = "popwt"
-    local vce "`r(vce)'"
-    tempvar touse
-    gen `touse' = 1  */
-    *** End dev ***
-
     if("`weight'" == "") {
       local weightexp = ""
     } 
     else {
       local weightexp "`weight'=`exp'"
     }
-    * disp "`weightexp'"
+
 
   *-> First Stage 
 
-    fvrevar `first_stage' if `touse' & `treatment' == 0
-    local full_first_stage `r(varlist)'
+    * Using `nocons` and adding a constant manually (for i.state i.year)
+    tempvar ones
+    gen `ones' = 1
+
+    fvrevar `first_stage' if (`touse' == 1) & (`treatment' == 0)
+    local full_first_stage "`r(varlist)' `ones'"
     
     * Manually demean all the first_stage vars by id (when treat == 0)
     if("`unit'" != "") {
@@ -61,8 +49,9 @@ program define did2s, eclass
     }
 
     * First stage regression (with clustering and weights)
-    quietly reg `varlist' `full_first_stage' [`weightexp'] if `touse' & `treatment' == 0, vce(cluster `cluster')
+    quietly reg `varlist' `full_first_stage' [`weightexp'] if (`touse' == 1) & (`treatment' == 0), vce(cluster `cluster') nocons
 
+    
     * Residualize outcome variable
     tempvar adj
     quietly predict double `adj' if `touse', residual
@@ -133,7 +122,7 @@ program define did2s, eclass
       
 
   *-> Standard Error Adjustment
-    
+
     * Create initialized matrix
     mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
 
@@ -145,16 +134,12 @@ program define did2s, eclass
     matrix `b' = e(b)
     local V_names: rownames e(V)
     local N = e(N)
-    * local r2 = e(r2)
-    * local r2_a = e(r2_a)
-    * local F = e(F)
 
     * Fill in V for omitted variables
     mata: st_matrix(st_local("V_final"), construct_V_final(V)) 
 
     matrix rownames `V_final' = `V_names'
     matrix colnames `V_final' = `V_names'
-
 
     ereturn clear
     ereturn post `b' `V_final', esample(`touse')
@@ -164,20 +149,17 @@ program define did2s, eclass
     ereturn local  vcetype  "`vcetype'"
     ereturn local  clustvar "`cluster'"
     ereturn scalar N = `N'
-    * ereturn scalar r2 = `r2'
-    * ereturn scalar r2_a = `r2_a'
-    * ereturn scalar F = `F'
 
     ereturn display
 end
 
 
 version 13
-
 capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
 mata: 
   matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
+
     real colvector treat, cluster_var, first_u, second_u, cl, idx, weights
     real matrix X1, X2, X10, V, meat, W, cov
 
@@ -196,7 +178,8 @@ mata:
       weights = J(rows(X1), 1, 1)
     }
 
-    /* For Testing
+    /* Dev */
+    /* 
     st_view(treat = ., ., "`treatment'", "`touse'")
     st_view(cluster_var = ., ., "`cluster'", "`touse'")
     st_view(first_u = 0, ., "`first_u'", "`touse'")
@@ -204,9 +187,9 @@ mata:
     st_view(X1 = ., ., "`vars_first'", "`touse'")
     st_view(X2 = ., ., "`vars_second'", "`touse'")
     k2 = `n_non_omit_second'
-
     st_view(weights = ., ., "`exp'")
     */
+    /* End Dev */
     
     /* Create X10 */
     st_select(X10 = ., X1, treat :== 0)     
@@ -227,7 +210,7 @@ mata:
     for(i=1; i <= length(cl); i++) {
       idx = cluster_var :== cl[i]
       /* Only rows with treat :== 1 */
-      idx0 = idx :& treat :== 0
+      idx0 = idx :& (treat :== 0)
 
       /* st_select */
       st_select(X2_sub, X2, idx)

@@ -1,5 +1,6 @@
-*! version 0.4
+*! version 0.5
 
+* Main function
 capture program drop did2s
 program define did2s, eclass
   *-> Setup
@@ -123,8 +124,11 @@ program define did2s, eclass
 
   *-> Standard Error Adjustment
 
-    * Create initialized matrix
-    mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
+    * Keep only esample for second_stage
+    preserve
+      keep if e(sample) == 1
+      mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
+    restore
 
   *-> Export
     tempname b V_final
@@ -153,15 +157,18 @@ program define did2s, eclass
     ereturn display
 end
 
-
+* Mata Functions
 version 13
 capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
 mata: 
   matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
 
-    real colvector treat, cluster_var, first_u, second_u, cl, idx, weights
-    real matrix X1, X2, X10, V, meat, W, cov
+    real colvector treat, cluster_var, first_u, second_u, cl, idx, weights, weights_0
+    real matrix X1, X2, X10, V, meat, W, cov, invX2X2
+    real matrix X10_sub, X2_sub, second_u_sub, first_u_sub
+    real colvector weights_sub, weights_0_sub, idx0
+    real scalar i
 
     st_view(treat = ., ., treatment_str, touse_str)
     st_view(cluster_var = ., ., cluster_str, touse_str)
@@ -177,19 +184,6 @@ mata:
     else {
       weights = J(rows(X1), 1, 1)
     }
-
-    /* Dev */
-    /* 
-    st_view(treat = ., ., "`treatment'", "`touse'")
-    st_view(cluster_var = ., ., "`cluster'", "`touse'")
-    st_view(first_u = 0, ., "`first_u'", "`touse'")
-    st_view(second_u = 0, ., "`second_u'", "`touse'")
-    st_view(X1 = ., ., "`vars_first'", "`touse'")
-    st_view(X2 = ., ., "`vars_second'", "`touse'")
-    k2 = `n_non_omit_second'
-    st_view(weights = ., ., "`exp'")
-    */
-    /* End Dev */
     
     /* Create X10 */
     st_select(X10 = ., X1, treat :== 0)     
@@ -210,7 +204,7 @@ mata:
     for(i=1; i <= length(cl); i++) {
       idx = cluster_var :== cl[i]
       /* Only rows with treat :== 1 */
-      idx0 = idx :& (treat :== 0)
+      idx0 = idx :& treat :== 0
 
       /* st_select */
       st_select(X2_sub, X2, idx)

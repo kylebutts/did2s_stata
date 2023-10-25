@@ -53,6 +53,12 @@ This procedure works so long as μ_i and μ_t are consistently estimated. The ke
 The fixed effects could be biased/inconsistent if there are anticipation effects, i.e. units respond before treatment starts. The fix is fairly simple, simply “shift” treatment date earlier by as many years as you suspect anticipation to occur (e.g. 2 years before treatment starts) and estimate on the subsample where the shifted treatment equals zero. If you suspect there is anticipation, pass this modified variable to {bf: treat_var}.
 {p_end}
 
+{marker untreated}
+{title:No Never-treated Group}
+
+{pstd}
+When certain years have no untreated observations (e.g. all units are treated by a year), then the time fixed effects can not be estimated. The software could be designed to be able to detect this and automatically drop these observations. However, I have chosen not to do this as it would require a major change in API that would limit the flexibility of the program. As an example, requiring an option for "year fixed effects" would prevent the user from specifying gender-specific year fixed effects. The flexibility of the method (i.e. specifying a well-designed model for untreated outcomes) in my opinion outweighs the cost of not being able to detect this case (I think practically, there are relatively few cases of no never-treated group).
+{p_end}
 
 {title:Examples:}
 

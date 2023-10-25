@@ -27,7 +27,6 @@ program define did2s, eclass
       local weightexp "`weight'=`exp'"
     }
 
-
   *-> First Stage 
 
     * Using `nocons` and adding a constant manually (for i.state i.year)
@@ -90,7 +89,7 @@ program define did2s, eclass
     local full_second_stage `r(varlist)'
 
     * Second stage regression
-    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
+	  quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
 
     **-> Get names of non-omitted variables
       * https://www.stata.com/support/faqs/programming/factor-variable-support/
@@ -120,13 +119,12 @@ program define did2s, eclass
     **-> Create second_u
     tempvar second_u
     predict double `second_u' if `touse', residual 
-      
 
   *-> Standard Error Adjustment
 
     * Keep only esample for second_stage
     preserve
-      keep if e(sample) == 1
+      qui keep if e(sample) == 1
       mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
     restore
 

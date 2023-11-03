@@ -49,22 +49,22 @@ To view the documentation, type `help did2s` into the console.
 use data/df_het.dta
     
 * Manually (note standard errors are off)
-qui reg dep_var i.state i.year if treat == 0, nocons
+qui reg dep_var i.state i.year if treat == 0
 predict adj, residuals
 reg adj i.treat, cluster(state) nocons
 
 Linear regression                               Number of obs     =     31,000
-                                                F(1, 39)          =    2787.70
+                                                F(1, 39)          =    2803.10
                                                 Prob > F          =     0.0000
                                                 R-squared         =     0.3776
-                                                Root MSE          =     1.7506
+                                                Root MSE          =     1.7505
 
                                  (Std. Err. adjusted for 40 clusters in state)
 ------------------------------------------------------------------------------
              |               Robust
          adj |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
 -------------+----------------------------------------------------------------
-     1.treat |   2.380208   .0450809    52.80   0.000     2.289024    2.471393
+     1.treat |   2.380156   .0449558    52.94   0.000     2.289224    2.471087
 ------------------------------------------------------------------------------
 ```
 
@@ -74,6 +74,7 @@ Linear regression                               Number of obs     =     31,000
 * With did2s standard error correction  
 did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)
 
+(0 observations deleted)
                                   (Std. Err. adjusted for clustering on state)
 ------------------------------------------------------------------------------
              |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
@@ -96,6 +97,7 @@ did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) tr
 
 (11,408 real changes made)
 
+(0 observations deleted)
                                     (Std. Err. adjusted for clustering on state)
 --------------------------------------------------------------------------------
                |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
@@ -164,6 +166,7 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post)
 * Covariates
 did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)
 
+(0 observations deleted)
                                     (Std. Err. adjusted for clustering on sid)
 ------------------------------------------------------------------------------
              |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
@@ -171,6 +174,7 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i
       1.post |   .0751416   .0353795     2.12   0.034     .0057991    .1444842
 ------------------------------------------------------------------------------
 
+(0 observations deleted)
                                     (Std. Err. adjusted for clustering on sid)
 ------------------------------------------------------------------------------
              |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]

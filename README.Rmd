@@ -56,7 +56,7 @@ To view the documentation, type `help did2s` into the console.
 use data/df_het.dta
 	
 * Manually (note standard errors are off)
-qui reg dep_var i.state i.year if treat == 0, nocons
+qui reg dep_var i.state i.year if treat == 0
 predict adj, residuals
 reg adj i.treat, cluster(state) nocons
 

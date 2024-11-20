@@ -41,28 +41,32 @@ To view the documentation, type `help did2s` into the console.
 ## Example Usage
 
 ``` stata
-
 ********************************************************************************
 * Static
 ********************************************************************************
 
 use data/df_het.dta
     
-* Manually (note standard errors are off)
-qui reg dep_var i.state i.year if treat == 0
-predict adj, residuals
-reg adj i.treat, cluster(state) nocons
+*-> two-stage manually (note standard errors are off)
 
+* First-stage regression 
+qui reg dep_var i.state i.year if treat == 0
+
+* y_{it} - \hat{y}_{it}(\infty)
+qui predict adj, residuals
+
+* Second-stage regression
+reg adj i.treat, cluster(state) nocons
 Linear regression                               Number of obs     =     31,000
                                                 F(1, 39)          =    2803.10
                                                 Prob > F          =     0.0000
                                                 R-squared         =     0.3776
                                                 Root MSE          =     1.7505
 
-                                 (Std. Err. adjusted for 40 clusters in state)
+                                 (Std. err. adjusted for 40 clusters in state)
 ------------------------------------------------------------------------------
              |               Robust
-         adj |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+         adj | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
 -------------+----------------------------------------------------------------
      1.treat |   2.380156   .0449558    52.94   0.000     2.289224    2.471087
 ------------------------------------------------------------------------------
@@ -71,13 +75,11 @@ Linear regression                               Number of obs     =     31,000
 ``` stata
 
 
-* With did2s standard error correction  
+*-> With did2s standard error correction    
 did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)
-
-(0 observations deleted)
-                                  (Std. Err. adjusted for clustering on state)
+                                  (Std. err. adjusted for clustering on state)
 ------------------------------------------------------------------------------
-             |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
 -------------+----------------------------------------------------------------
      1.treat |   2.380156   .0614383    38.74   0.000     2.259739    2.500573
 ------------------------------------------------------------------------------
@@ -86,21 +88,18 @@ did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat
 You can also do event-study by changing the `second_stage`
 
 ``` stata
-use data/df_het.dta
+********************************************************************************
+* Dynamic
+********************************************************************************
 
 * can not have negatives in factor variable
-gen rel_year_shift = rel_year + 20
-replace rel_year_shift = 100 if rel_year_shift == .
+qui gen rel_year_shift = rel_year + 20
+qui replace rel_year_shift = 100 if rel_year_shift == .
 
 did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)
-(11,408 missing values generated)
-
-(11,408 real changes made)
-
-(0 observations deleted)
-                                    (Std. Err. adjusted for clustering on state)
+                                    (Std. err. adjusted for clustering on state)
 --------------------------------------------------------------------------------
-               |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+               | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
 ---------------+----------------------------------------------------------------
 rel_year_shift |
             0  |    .049467   .0795074     0.62   0.534    -.1063647    .2052986
@@ -147,10 +146,9 @@ rel_year_shift |
 --------------------------------------------------------------------------------
 ```
 
-This method works with pre-determined covariates as well!
+This method works with exogenous time-varying covariates as well!
 
 ``` stata
-
 ********************************************************************************
 * Castle Doctrine
 ********************************************************************************
@@ -165,19 +163,16 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post)
 
 * Covariates
 did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)
-
-(0 observations deleted)
-                                    (Std. Err. adjusted for clustering on sid)
+                                    (Std. err. adjusted for clustering on sid)
 ------------------------------------------------------------------------------
-             |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
 -------------+----------------------------------------------------------------
       1.post |   .0751416   .0353795     2.12   0.034     .0057991    .1444842
 ------------------------------------------------------------------------------
 
-(0 observations deleted)
-                                    (Std. Err. adjusted for clustering on sid)
+                                    (Std. err. adjusted for clustering on sid)
 ------------------------------------------------------------------------------
-             |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
 -------------+----------------------------------------------------------------
       1.post |   .0760161   .0324715     2.34   0.019     .0123731    .1396591
 ------------------------------------------------------------------------------
@@ -214,30 +209,27 @@ end
 xtset unique_id year
 sort unique_id year
 bootstrap, cluster(state) idcluster(new_id) group(unique_id) reps(100): did2s_est
-       panel variable:  unique_id (strongly balanced)
-        time variable:  year, 1990 to 2020
-                delta:  1 unit
+Panel variable: unique_id (strongly balanced)
+ Time variable: year, 1990 to 2020
+         Delta: 1 unit
 
 
 (running did2s_est on estimation sample)
 
-Bootstrap replications (100)
-----+--- 1 ---+--- 2 ---+--- 3 ---+--- 4 ---+--- 5 
-..................................................    50
-..................................................   100
+Bootstrap replications (100): .........10.........20.........30.........40.........50.........60.........70.........80.........90.........100 done
 
-Linear regression                               Number of obs     =     31,000
-                                                Replications      =        100
-                                                Wald chi2(1)      =    1568.60
-                                                Prob > chi2       =     0.0000
-                                                R-squared         =     0.3776
-                                                Adj R-squared     =     0.3776
-                                                Root MSE          =     1.7505
+Linear regression                                      Number of obs =  31,000
+                                                       Replications  =     100
+                                                       Wald chi2(1)  = 1568.60
+                                                       Prob > chi2   =  0.0000
+                                                       R-squared     =  0.3776
+                                                       Adj R-squared =  0.3776
+                                                       Root MSE      =  1.7505
 
                                   (Replications based on 40 clusters in state)
 ------------------------------------------------------------------------------
              |   Observed   Bootstrap                         Normal-based
-    __000001 |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+    __000001 | coefficient  std. err.      z    P>|z|     [95% conf. interval]
 -------------+----------------------------------------------------------------
      1.treat |   2.380156   .0600965    39.61   0.000     2.262369    2.497943
 ------------------------------------------------------------------------------
@@ -245,7 +237,8 @@ Linear regression                               Number of obs     =     31,000
 
 ## References
 
-<div id="refs" class="references csl-bib-body hanging-indent">
+<div id="refs" class="references csl-bib-body hanging-indent"
+entry-spacing="0">
 
 <div id="ref-Gardner_2021" class="csl-entry">
 

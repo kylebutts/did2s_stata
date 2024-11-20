@@ -48,47 +48,52 @@ To view the documentation, type `help did2s` into the console.
 
 
 ```{stata}
-
 ********************************************************************************
 * Static
 ********************************************************************************
 
 use data/df_het.dta
 	
-* Manually (note standard errors are off)
-qui reg dep_var i.state i.year if treat == 0
-predict adj, residuals
-reg adj i.treat, cluster(state) nocons
+*-> two-stage manually (note standard errors are off)
 
+* First-stage regression 
+qui reg dep_var i.state i.year if treat == 0
+
+* y_{it} - \hat{y}_{it}(\infty)
+qui predict adj, residuals
+
+* Second-stage regression
+reg adj i.treat, cluster(state) nocons
 ```
 
 ```{stata, echo=-2}
 
 use data/df_het.dta
 
-* With did2s standard error correction	
+*-> With did2s standard error correction	
 did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)
-
-
 ```
 
 You can also do event-study by changing the `second_stage`
 
-```{stata}
+```{stata, echo=c(-5, -6)}
+********************************************************************************
+* Dynamic
+********************************************************************************
+
 use data/df_het.dta
 
 * can not have negatives in factor variable
-gen rel_year_shift = rel_year + 20
-replace rel_year_shift = 100 if rel_year_shift == .
+qui gen rel_year_shift = rel_year + 20
+qui replace rel_year_shift = 100 if rel_year_shift == .
 
 did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)
 ```
 
 
-This method works with pre-determined covariates as well!
+This method works with exogenous time-varying covariates as well!
 
 ```{stata}
-
 ********************************************************************************
 * Castle Doctrine
 ********************************************************************************
@@ -103,7 +108,6 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post)
 
 * Covariates
 did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)
-
 ```
 
 

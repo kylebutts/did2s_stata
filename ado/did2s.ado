@@ -27,11 +27,8 @@ program define did2s, eclass
       local weightexp "`weight'=`exp'"
     }
 
-  *-> First Stage 
 
-    if("`unit'" != "") {
-      preserve
-    }
+  *-> First Stage 
 
     * Using `nocons` and adding a constant manually (for i.state i.year)
     tempvar ones
@@ -42,7 +39,6 @@ program define did2s, eclass
     
     * Manually demean all the first_stage vars by id (when treat == 0)
     if("`unit'" != "") {
-      sort `unit'
       tempvar mean mean0
       foreach var of varlist `full_first_stage' `varlist' {
         cap drop `mean' `mean0'
@@ -93,14 +89,7 @@ program define did2s, eclass
     local full_second_stage `r(varlist)'
 
     * Second stage regression
-	  quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
-
-    * Second stage regression (with pretty display)
-    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
-    tempname b
-    matrix `b' = e(b)
-    local V_names: rownames e(V)
-    local N = e(N)
+    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons vce(cluster `cluster')
 
     **-> Get names of non-omitted variables
       * https://www.stata.com/support/faqs/programming/factor-variable-support/
@@ -129,20 +118,24 @@ program define did2s, eclass
 
     **-> Create second_u
     tempvar second_u
-    predict double `second_u' if `touse', residual 
+    quietly predict double `second_u' if `touse', residual 
+      
 
   *-> Standard Error Adjustment
 
-    if("`unit'" == "") {
-      preserve
-    }
-      * Keep only esample for second_stage
-      qui keep if e(sample) == 1
-      mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
-    
-    restore
+    * Keep only esample for second_stage
+    tempvar touse_x_esample
+    qui gen `touse_x_esample' = (`touse' == 1) & (e(sample) == 1)
+    mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse_x_esample'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
 
   *-> Export
+
+    * Second stage regression (with pretty display)
+    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
+    tempname b
+    matrix `b' = e(b)
+    local V_names: rownames e(V)
+    local N = e(N)
 
     * Fill in V for omitted variables
     tempname V_final

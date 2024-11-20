@@ -27,6 +27,9 @@ program define did2s, eclass
       local weightexp "`weight'=`exp'"
     }
 
+    if("`unit'" != "") {
+      qui preserve
+    }
 
   *-> First Stage 
 
@@ -154,6 +157,10 @@ program define did2s, eclass
     ereturn scalar N = `N'
 
     ereturn display
+
+    if("`unit'" != "") {
+      qui restore
+    }
 end
 
 * Mata Functions

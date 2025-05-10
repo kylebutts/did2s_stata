@@ -2,12 +2,21 @@
 # did2s
 
 <!-- badges: start -->
+
 <!-- badges: end -->
 
 The goal of did2s is to estimate TWFE models without running into the
 problem caused by staggered treatment adoption. For details on the
 methodology, view this
 [vignette](http://kylebutts.com/did2s/articles/Two-Stage-Difference-in-Differences.html)
+
+> [!WARNING]
+>
+> Due to the way Stata handles the `predict` command, users of this
+> package should be careful when they have always-treated units in their
+> data or if all units end up treated before the end of the panel. If
+> any value of `i.unit` or `i.year` are not estimated, then predict will
+> estimate them as 0s which can predict very weird results.
 
 ## Installation
 
@@ -216,7 +225,8 @@ Panel variable: unique_id (strongly balanced)
 
 (running did2s_est on estimation sample)
 
-Bootstrap replications (100): .........10.........20.........30.........40.........50.........60.........70.........80.........90.........100 done
+Bootstrap replications (100): .........10.........20.........30.........40.........50.........60....
+> .....70.........80.........90.........100 done
 
 Linear regression                                      Number of obs =  31,000
                                                        Replications  =     100

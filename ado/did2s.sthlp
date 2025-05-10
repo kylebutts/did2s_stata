@@ -60,6 +60,13 @@ The fixed effects could be biased/inconsistent if there are anticipation effects
 When all units are treated in a year or when some units are always treated, then the time or unit fixed effects can not be estimated. The software could be designed to be able to detect this and automatically drop these observations. However, I have chosen not to do this as it would require a major change in API that would limit the flexibility of the program. As an example, requiring an option for "year fixed effects" would prevent the user from specifying gender-specific year fixed effects. The flexibility of the method (i.e. specifying a well-designed model for untreated outcomes) in my opinion outweighs the cost of not being able to detect this case (I think practically, there are relatively few cases of no never-treated group).
 {p_end}
 
+
+{marker warning}
+{title:Important Warning}
+
+Due to the way Stata handles the `predict` command, users of this package should be careful when they have always-treated units in their data or if all units end up treated before the end of the panel. 
+If any value of `i.unit` or `i.year` are not estimated, then predict will estimate them as 0s which can predict very weird results. 
+
 {title:Examples:}
 
 {pstd}Setup{p_end}
@@ -98,18 +105,12 @@ When all units are treated in a year or when some units are always treated, then
 {synopt:{cmd:e(cmdline)}}command as typed{p_end}
 {synopt:{cmd:e(depvar)}}name of dependent variable{p_end}
 {synopt:{cmd:e(clustvar)}}name of cluster variable{p_end}
-{synopt:{cmd:e(vce)}}{it:vcetype} specified in {cmd:vce()}{p_end}
-{synopt:{cmd:e(vcetype)}}title used to label Std. Err.{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Matrices}{p_end}
 {synopt:{cmd:e(b)}}coefficient vector{p_end}
 {synopt:{cmd:e(V)}}variance-covariance matrix of the estimators{p_end}
 
-{synoptset 20 tabbed}{...}
-{p2col 5 20 24 2: Functions}{p_end}
-{synopt:{cmd:e(sample)}}marks estimation sample{p_end}
-{p2colreset}{...}
 
 
 {title:Program Author}

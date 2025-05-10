@@ -151,9 +151,7 @@ program define did2s, eclass
     ereturn post `b' `V_final', esample(`touse')
     ereturn local cmdline `"`0'"'
     ereturn local cmd "did2s"
-    ereturn local  vce    "`vce'"
-    ereturn local  vcetype  "`vcetype'"
-    ereturn local  clustvar "`cluster'"
+    ereturn local clustvar "`cluster'"
     ereturn scalar N = `N'
 
     ereturn display

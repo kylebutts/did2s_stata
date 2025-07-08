@@ -41,12 +41,12 @@ program define did2s, eclass
     local full_first_stage "`r(varlist)' `ones'"
     
     * Manually demean all the first_stage vars by id (when treat == 0)
-    if("`unit'" != "") {
+    if ("`unit'" != "") {
       tempvar mean mean0
       foreach var of varlist `full_first_stage' `varlist' {
         cap drop `mean' `mean0'
-        quietly by `unit': egen `mean0' = mean(`var') if `treatment' == 0
-        quietly by `unit': egen `mean' = median(`mean0')
+        quietly by `unit': egen `mean0' = mean(`var') if (`touse' == 1) & (`treatment' == 0)
+        quietly by `unit': egen `mean' = median(`mean0') if `touse'
         quietly replace `var' = `var' - `mean'
       }
     }

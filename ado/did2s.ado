@@ -45,7 +45,7 @@ program define did2s, eclass
     * demeaning must use the WEIGHTED mean over untreated observations within
     * unit; otherwise Frisch-Waugh fails and unit() stops reproducing the
     * equivalent full-dummy specification. Reduces to the simple mean when
-    * weights are absent or constant within unit. (Issue #NN)
+    * weights are absent or constant within unit. (Issue #19)
     if ("`unit'" != "") {
       tempvar dmwt mean wsum xsum
       if ("`weight'" == "") {

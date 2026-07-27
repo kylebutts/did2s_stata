@@ -40,12 +40,31 @@ program define did2s, eclass
     fvrevar `first_stage' if (`touse' == 1) & (`treatment' == 0)
     local full_first_stage "`r(varlist)' `ones'"
     
-    * Manually demean all the first_stage vars by id (when treat == 0)
+    * Manually demean all the first_stage vars by id (when treat == 0).
+    * The first stage is estimated by WLS when weights are supplied, so the
+    * demeaning must use the WEIGHTED mean over untreated observations within
+    * unit; otherwise Frisch-Waugh fails and unit() stops reproducing the
+    * equivalent full-dummy specification. Reduces to the simple mean when
+    * weights are absent or constant within unit. (Issue #NN)
     if ("`unit'" != "") {
-      tempvar mean
+      tempvar dmwt mean wsum xsum
+      if ("`weight'" == "") {
+        quietly gen double `dmwt' = 1
+      }
+      else {
+        quietly gen double `dmwt' = `exp'
+      }
       foreach var of varlist `full_first_stage' `varlist' {
+        cap drop `wsum'
+        cap drop `xsum'
         cap drop `mean'
-        quietly egen double `mean' = mean(cond(`touse' & `treatment' == 0, `var', .)), by(`unit')
+        * weighted mean, ignoring rows where `var' is missing (as egen's
+        * mean() does)
+        quietly egen double `wsum' = total(cond(`touse' & `treatment' == 0 ///
+            & !missing(`var'), `dmwt', .)), by(`unit')
+        quietly egen double `xsum' = total(cond(`touse' & `treatment' == 0, ///
+            `dmwt' * `var', .)), by(`unit')
+        quietly gen double `mean' = `xsum' / `wsum'
         quietly replace `var' = `var' - `mean'
       }
     }

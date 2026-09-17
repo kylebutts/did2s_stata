@@ -610,14 +610,17 @@ mata:
     return(s)
   }
 
-  /* Corrected VCV: the construct_V() formula with (X10'WX10)^- applied
-     iteratively.
-       B = (X10'WX10)^- X1'W X2 ; Z = X1 B
-       S = X2 .* (w u2) - Z .* (w u1)
-       V = (X2'WX2)^-1 [sum_g S_g' S_g] (X2'WX2)^-1                       */
+  /* Corrected VCV, following the R implementation with the first-stage
+     inverse applied iteratively:
+
+       B = (X10' W X10)^- X1' W X2
+       Z = X1 B
+       IF_i = [X2_i w_i u2_i - Z_i w_i u1_i] (X2' W X2)^-1
+       V = sum_g (sum_{i in g} IF_i)' (sum_{i in g} IF_i)                 */
   real matrix _d2s_hdfe_V(struct _d2s_prob scalar s, string scalar x2names, string scalar u2name, string scalar clname, string scalar tousename, real scalar tol, real scalar maxiter)
   {
-    real matrix X2, C, B, Z, S, A, info, meat, bread
+    real matrix X2, first_stage_rhs, first_stage_coef, first_stage_fitted
+    real matrix influence, cluster_influence, info, x2tx2_inv, cov
     real colvector u2, clv, p
     real scalar k2, G, g
 
@@ -626,26 +629,35 @@ mata:
     clv = st_data(., clname, tousename)
     k2  = cols(X2)
 
-    C = _d2s_XtWv(s, s.w :* X2)
-    B = _d2s_pcg(s, C, tol, maxiter)
-    Z = _d2s_Xv(s, B)
+    /* Map estimation noise from the untreated first stage into each
+       second-stage coefficient without constructing X10' W X10. */
+    first_stage_rhs = _d2s_XtWv(s, s.w :* X2)
+    first_stage_coef = _d2s_pcg(s, first_stage_rhs, tol, maxiter)
+    first_stage_fitted = _d2s_Xv(s, first_stage_coef)
 
-    S = (X2 :* (s.w :* u2)) - (Z :* (s.w :* s.first_u))
+    /* This follows the R implementation directly. Each row is the
+       observation-level influence function:
 
-    p    = order(clv, 1)
-    S    = S[p, .]
+         (X2' W X2)^-1 [X2_i w_i u2_i - Z_i w_i u1_i]
+
+       written transposed so observations are rows. */
+    x2tx2_inv = invsym(cross(X2, s.w, X2))
+    influence = ((X2 :* (s.w :* u2)) -
+      (first_stage_fitted :* (s.w :* s.first_u))) * x2tx2_inv
+
+    /* Sum influence functions within cluster, then take their cross-product. */
+    p         = order(clv, 1)
+    influence = influence[p, .]
     info = panelsetup(clv[p], 1)
     G    = rows(info)
-    A = J(G, k2, 0)
+    cluster_influence = J(G, k2, 0)
     for (g = 1; g <= G; g++) {
-      A[g, .] = colsum(panelsubmatrix(S, g, info))
+      cluster_influence[g, .] = colsum(panelsubmatrix(influence, g, info))
     }
-
-    meat  = cross(A, A)
-    bread = invsym(cross(X2, s.w, X2))
+    cov = cross(cluster_influence, cluster_influence)
 
     st_numscalar("__d2s_rmax", s.rmax)
-    return(bread * meat * bread)
+    return(cov)
   }
 
   /* ---- classic path, unchanged ---- */
@@ -653,7 +665,9 @@ mata:
   matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
 
     real colvector treat, cluster_var, first_u, second_u, weights, w0, p
-    real matrix X1, X2, V, S, A, info, meat, cov, invX2X2
+    real matrix X1, X2, first_stage_map, first_stage_score
+    real matrix second_stage_score, influence, cluster_influence, info
+    real matrix x2tx2_inv, cov
     real scalar G, g
 
     st_view(treat = ., ., treatment_str, touse_str)
@@ -675,32 +689,32 @@ mata:
        so no row-selected copy of X1 is needed. */
     w0 = weights :* (1 :- treat)
 
-    /* Only calculate this part once */
-    V = cross(X2, weights, X1) * invsym(cross(X1, w0, X1))
+    /* Map estimation noise from the untreated first stage into each
+       second-stage coefficient. */
+    first_stage_map = cross(X2, weights, X1) *
+      invsym(cross(X1, w0, X1))
 
-    /* Observation-level scores (N x k2):
-         s_i = w_i X2_i u2_i - V w_i X1_i u1_i
-       first_u is already zero on treated rows, so restricting the second
-       term to untreated rows is automatic. Summing s_i within a cluster
-       reproduces the W vector of the original loop exactly. */
-    S = (X2 :* (weights :* second_u)) - (X1 :* (weights :* first_u)) * V'
+    /* Follow the R implementation directly. The two score terms are N x k2;
+       multiplying their difference by the second-stage bread gives the
+       observation-level influence function with observations in rows. */
+    second_stage_score = X2 :* (weights :* second_u)
+    first_stage_score = (X1 :* (weights :* first_u)) * first_stage_map'
+    x2tx2_inv = invsym(cross(X2, weights, X2))
+    influence = (second_stage_score - first_stage_score) * x2tx2_inv
 
-    /* Sum scores within cluster: sort once, then one pass over the panels,
-       instead of scanning all N rows once per cluster. */
-    p    = order(cluster_var, 1)
-    S    = S[p, .]
+    /* The cluster-robust covariance is the cross-product of influence
+       functions after summing them within cluster. */
+    p         = order(cluster_var, 1)
+    influence = influence[p, .]
     info = panelsetup(cluster_var[p], 1)
     G    = rows(info)
 
-    A = J(G, k2, 0)
+    cluster_influence = J(G, k2, 0)
     for(g = 1; g <= G; g++) {
-      A[g, .] = colsum(panelsubmatrix(S, g, info))
+      cluster_influence[g, .] = colsum(panelsubmatrix(influence, g, info))
     }
 
-    meat = cross(A, A)
-
-    invX2X2 = invsym(cross(X2, weights, X2))
-    cov = invX2X2 * meat * invX2X2
+    cov = cross(cluster_influence, cluster_influence)
 
     return(cov)
   }

@@ -1,12 +1,29 @@
-*! version 0.6
+*! version 0.7  absorb(): first stage with absorbed fixed effects
 
 * Main function
 capture program drop did2s
-program define did2s, eclass
+program define did2s, eclass sortpreserve
   *-> Setup
 
     version 13
-    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], first_stage(varlist fv) second_stage(varlist fv) TREATment(varname) cluster(varname) [ unit(varname) ] 
+    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], second_stage(varlist fv) TREATment(varname) cluster(varname) [ first_stage(varlist fv) absorb(varlist numeric) unit(varname) TOLerance(real 1e-10) MAXITer(integer 2000) ]
+
+    if ("`absorb'" == "" & "`first_stage'" == "") {
+      display as error "option {bf:first_stage()} required (or use {bf:absorb()})"
+      exit(198)
+    }
+    if ("`absorb'" != "" & "`unit'" != "") {
+      display as error "options {bf:absorb()} and {bf:unit()} may not be combined; put the unit fixed effect in {bf:absorb()}"
+      exit(198)
+    }
+    if (`tolerance' <= 0) {
+      display as error "option {bf:tolerance()} must be positive"
+      exit(198)
+    }
+    if (`maxiter' <= 0) {
+      display as error "option {bf:maxiter()} must be a positive integer"
+      exit(198)
+    }
 
     * to use
     tempvar touse
@@ -26,6 +43,174 @@ program define did2s, eclass
     else {
       local weightexp "`weight'=`exp'"
     }
+
+  *============================================================================
+  * PATH A: absorb().  Path B below is unchanged.
+  *============================================================================
+  if ("`absorb'" != "") {
+
+    capture which reghdfe
+    if (_rc != 0) {
+      display as error "option {bf:absorb()} requires {bf:reghdfe}"
+      display as error "install it with {bf:ssc install reghdfe}"
+      exit(199)
+    }
+
+    * Mata reads the weight with st_data(), which requires a variable name,
+    * so an expression such as [aw = pop*2] must be materialized first.
+    if ("`weight'" != "") {
+      tempvar wvar
+      qui gen double `wvar' = `exp'
+      local hdfeweightexp "`weight'=`wvar'"
+    }
+    else {
+      local wvar = ""
+      local hdfeweightexp = ""
+    }
+
+    markout `touse' `varlist' `treatment' `cluster' `absorb'
+    if ("`wvar'" != "") markout `touse' `wvar'
+    if ("`first_stage'" != "") {
+      fvrevar `first_stage', list
+      markout `touse' `r(varlist)'
+    }
+    fvrevar `second_stage', list
+    markout `touse' `r(varlist)'
+
+    quietly count if `touse' & !inlist(`treatment', 0, 1)
+    if (r(N) > 0) {
+      display as error "option {bf:treatment()} must identify treatment with only 0 and 1"
+      exit(459)
+    }
+
+    local Qvars ""
+    if ("`first_stage'" != "") {
+      fvrevar `first_stage' if `touse'
+      local Qvars "`r(varlist)'"
+    }
+
+    fvrevar `second_stage' if `touse'
+    local full_second_stage `r(varlist)'
+
+    *-> Stage 1. Save each absorbed effect separately so it can be propagated
+    *   to treated observations sharing a level observed in the untreated
+    *   estimation sample.
+    local absorb_spec ""
+    local fehatvars ""
+    foreach fe of varlist `absorb' {
+      tempvar fehat
+      local absorb_spec "`absorb_spec' `fehat'=`fe'"
+      local fehatvars "`fehatvars' `fehat'"
+    }
+
+    quietly reghdfe `varlist' `first_stage' [`hdfeweightexp'] ///
+      if `touse' & `treatment' == 0, absorb(`absorb_spec') ///
+      noconstant keepsingletons verbose(-1)
+
+    tempvar xb y0hat adj
+    if ("`first_stage'" != "") {
+      quietly predict double `xb' if `touse', xb
+    }
+    else {
+      quietly gen double `xb' = 0 if `touse'
+    }
+    quietly gen double `y0hat' = `xb' if `touse'
+
+    local i = 1
+    foreach fe of varlist `absorb' {
+      local fehat : word `i' of `fehatvars'
+      gsort `fe' -`fehat'
+      quietly by `fe': replace `fehat' = `fehat'[1] if missing(`fehat') & `touse'
+      quietly replace `y0hat' = `y0hat' + `fehat' if `touse'
+      local ++i
+    }
+
+    quietly gen double `adj' = `varlist' - `y0hat' if `touse'
+    quietly count if `touse' & missing(`adj')
+    local ndrop = r(N)
+    if (`ndrop' > 0) {
+      quietly replace `touse' = 0 if missing(`adj')
+      display as txt "note: `ndrop' observation(s) dropped because an absorbed fixed-effect"
+      display as txt "      level was not observed in the untreated estimation sample."
+    }
+    quietly count if `touse'
+    if (r(N) == 0) {
+      display as error "no observations have identified first-stage predictions"
+      exit(2000)
+    }
+
+    tempvar first_u
+    quietly gen double `first_u' = `adj' * (1 - `treatment') if `touse'
+
+    capture mata: mata drop __D2S
+    mata: __D2S = _d2s_setup("`Qvars'", "`absorb'", "`treatment'", "`touse'", "`wvar'", "`first_u'")
+
+    *-> Second Stage
+    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons
+
+      tempname b_second omit
+      matrix `b_second' = e(b)
+      _ms_omit_info `b_second'
+      matrix `omit' = r(omit)
+      local vars_second: colnames e(b)
+
+      local i = 1
+      local newlist
+      foreach var in `vars_second' {
+        if `omit'[1,`i'] == 0 {
+          if ("`var'" != "_cons") local newlist "`newlist' `var'"
+        }
+        local ++i
+      }
+      local vars_second "`newlist'"
+
+    tempvar second_u
+    quietly predict double `second_u' if `touse', residual
+
+    *-> SE correction
+    mata: V = _d2s_hdfe_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
+
+    if (scalar(__d2s_rmax) > `tolerance') {
+      display as txt "warning: variance-correction solver did not converge (max relative residual "
+      display as txt "         " %8.1e scalar(__d2s_rmax) ", tolerance `tolerance')."
+      display as txt "         DO NOT report these standard errors. Try {bf:maxiter()}, a coarser"
+      display as txt "         fixed-effect specification, or a cluster bootstrap."
+    }
+    capture scalar drop __d2s_rmax
+
+    *-> Export
+    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
+    tempname b
+    matrix `b' = e(b)
+    local V_names: rownames e(V)
+    local N = e(N)
+    tempvar finalsample
+    quietly gen byte `finalsample' = e(sample)
+
+    tempname V_final
+    mata: st_matrix(st_local("V_final"), construct_V_final(V))
+
+    matrix rownames `V_final' = `V_names'
+    matrix colnames `V_final' = `V_names'
+
+    ereturn clear
+    ereturn post `b' `V_final', esample(`finalsample')
+    ereturn local cmdline `"`0'"'
+    ereturn local cmd "did2s"
+    ereturn local clustvar "`cluster'"
+    ereturn local absorb "`absorb'"
+    ereturn scalar N = `N'
+
+    ereturn display
+
+    capture mata: mata drop __D2S
+    exit
+  }
+
+
+  *============================================================================
+  * PATH B: classic (explicit dummies, optional unit() demeaning) -- unchanged
+  *============================================================================
 
     if("`unit'" != "") {
       qui preserve
@@ -183,7 +368,288 @@ end
 version 13
 capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
+capture mata mata drop _d2s_prob()
+capture mata mata drop _d2s_grpsum()
+capture mata mata drop _d2s_Xv()
+capture mata mata drop _d2s_XtWv()
+capture mata mata drop _d2s_M0v()
+capture mata mata drop _d2s_pcg()
+capture mata mata drop _d2s_setup()
+capture mata mata drop _d2s_hdfe_V()
 mata: 
+
+  struct _d2s_prob {
+    real scalar     N, q, D, k1, kfe, rmax
+    real colvector  w, w0, treat, first_u, dprec, ends
+    real matrix     Q, LEV, P2
+    real rowvector  Ld, has0, eoff, elen, feoff
+  }
+
+  /* Group sums of the columns of x, given a sort order p and the group end
+     positions (in sorted order). */
+  real matrix _d2s_grpsum(real matrix x, real colvector p, real colvector ends)
+  {
+    real matrix out
+    real colvector cs
+    real scalar G, j
+
+    G = rows(ends)
+    out = J(G, cols(x), 0)
+    for (j = 1; j <= cols(x); j++) {
+      cs = quadrunningsum(x[p, j])
+      if (G == 1) {
+        out[., j] = cs[ends]
+      }
+      else {
+        out[., j] = cs[ends] - (0 \ cs[ends[|1 \ G - 1|]])
+      }
+    }
+    return(out)
+  }
+
+  /* X1 * v */
+  real matrix _d2s_Xv(struct _d2s_prob scalar s, real matrix v)
+  {
+    real matrix xv, vd
+    real scalar d, off, m
+
+    m = cols(v)
+    if (s.q > 0) {
+      xv = s.Q * v[|1, 1 \ s.q, m|]
+    }
+    else {
+      xv = J(s.N, m, 0)
+    }
+    off = s.q
+    for (d = 1; d <= s.D; d++) {
+      vd = v[|off + 1, 1 \ off + s.Ld[d], m|] \ J(1, m, 0)
+      xv = xv + vd[s.LEV[., d], .]
+      off = off + s.Ld[d]
+    }
+    return(xv)
+  }
+
+  /* X1' * t */
+  real matrix _d2s_XtWv(struct _d2s_prob scalar s, real matrix t)
+  {
+    real matrix out, g
+    real colvector ends
+    real scalar d
+
+    if (s.q > 0) {
+      out = cross(s.Q, t)
+    }
+    else {
+      out = J(0, cols(t), 0)
+    }
+    for (d = 1; d <= s.D; d++) {
+      ends = s.ends[|s.eoff[d] + 1 \ s.eoff[d] + s.elen[d]|]
+      g = _d2s_grpsum(t, s.P2[., d], ends)
+      if (s.has0[d] == 1) {
+        g = g[|2, 1 \ rows(g), cols(g)|]
+      }
+      out = out \ g
+    }
+    return(out)
+  }
+
+  /* (X10' W X10) v */
+  real matrix _d2s_M0v(struct _d2s_prob scalar s, real matrix v)
+  {
+    return(_d2s_XtWv(s, s.w0 :* _d2s_Xv(s, v)))
+  }
+
+  /* Jacobi-preconditioned conjugate gradients, one solve per column of C.
+     Any two solutions differ only in directions annihilated by X10, so they
+     produce the same fitted-value correction. A divergence guard stops
+     runaway iterations on inconsistent systems. */
+  real matrix _d2s_pcg(struct _d2s_prob scalar s, real matrix C, real scalar tol, real scalar maxiter)
+  {
+    real matrix B
+    real colvector c, b, r, z, pp, Ap
+    real scalar j, it, normc, rz, rznew, alpha, beta, relres, pAp
+
+    B = J(s.k1, cols(C), 0)
+    for (j = 1; j <= cols(C); j++) {
+      c = C[., j]
+      normc = sqrt(cross(c, c))
+      if (normc <= 0) {
+        continue
+      }
+      b = J(s.k1, 1, 0)
+      r = c
+      z = r :/ s.dprec
+      pp = z
+      rz = cross(r, z)
+      relres = 1
+      for (it = 1; it <= maxiter; it++) {
+        Ap = _d2s_M0v(s, pp)
+        pAp = cross(pp, Ap)
+        if (pAp <= 0) {
+          break
+        }
+        alpha = rz / pAp
+        b = b + alpha * pp
+        r = r - alpha * Ap
+        relres = sqrt(cross(r, r)) / normc
+        if (relres < tol) {
+          break
+        }
+        if (relres > 1e6) {
+          break
+        }
+        z = r :/ s.dprec
+        rznew = cross(r, z)
+        beta = rznew / rz
+        pp = z + beta * pp
+        rz = rznew
+      }
+      if (relres > s.rmax) {
+        s.rmax = relres
+      }
+      B[., j] = b
+    }
+    return(B)
+  }
+
+  struct _d2s_prob scalar _d2s_setup(string scalar qnames, string scalar fenames, string scalar treatname, string scalar tousename, string scalar wname, string scalar firstuname)
+  {
+    struct _d2s_prob scalar s
+    string rowvector fes
+    real colvector f, p, s0, sw0g, supp, gid, lev, ends, gg, dq
+    real matrix inf
+    real scalar d, g, Lall, L
+
+    s.treat = st_data(., treatname, tousename)
+    s.first_u = st_data(., firstuname, tousename)
+    s.N = rows(s.treat)
+    if (wname != "") {
+      s.w = st_data(., wname, tousename)
+    }
+    else {
+      s.w = J(s.N, 1, 1)
+    }
+    s.w0 = s.w :* (1 :- s.treat)
+
+    if (qnames != "") {
+      s.Q = st_data(., tokens(qnames), tousename)
+      s.q = cols(s.Q)
+    }
+    else {
+      s.Q = J(s.N, 0, 0)
+      s.q = 0
+    }
+
+    /* s.w0 is the actual first-stage weight vector. The support indicator is
+       used only to enumerate levels represented in the untreated sample. */
+    s0 = (s.treat :== 0) :* (s.w :> 0)
+
+    fes = tokens(fenames)
+    s.D = cols(fes)
+    s.LEV  = J(s.N, s.D, .)
+    s.P2   = J(s.N, s.D, .)
+    s.Ld   = J(1, s.D, 0)
+    s.has0 = J(1, s.D, 0)
+    s.eoff = J(1, s.D, 0)
+    s.elen = J(1, s.D, 0)
+    s.feoff = J(1, s.D, 0)
+    s.ends = J(0, 1, 0)
+    s.rmax = 0
+
+    for (d = 1; d <= s.D; d++) {
+      f = st_data(., fes[d], tousename)
+      p = order(f, 1)
+      inf = panelsetup(f[p], 1)
+      Lall = rows(inf)
+      sw0g = _d2s_grpsum(s0, p, inf[., 2])
+      supp = sw0g :> 0
+      L = sum(supp)
+      if (L == 0) {
+        _error("did2s: a fixed effect has no levels with untreated observations")
+      }
+      gid = J(Lall, 1, 0)
+      gid[selectindex(supp)] = (1::L)
+      lev = J(s.N, 1, 0)
+      for (g = 1; g <= Lall; g++) {
+        lev[p[|inf[g, 1] \ inf[g, 2]|]] = J(inf[g, 2] - inf[g, 1] + 1, 1, gid[g])
+      }
+      s.Ld[d] = L
+      s.LEV[., d] = lev + (lev :== 0) :* (L + 1)
+      p = order(lev, 1)
+      s.P2[., d] = p
+      inf = panelsetup(lev[p], 1)
+      s.has0[d] = (lev[p[1]] == 0)
+      s.eoff[d] = rows(s.ends)
+      s.elen[d] = rows(inf)
+      s.ends = s.ends \ inf[., 2]
+    }
+
+    s.feoff[1] = 0
+    for (d = 2; d <= s.D; d++) {
+      s.feoff[d] = s.feoff[d - 1] + s.Ld[d - 1]
+    }
+    s.kfe = s.feoff[s.D] + s.Ld[s.D]
+    s.k1  = s.q + s.kfe
+
+    /* Jacobi preconditioner: diag(X10' W X10) */
+    s.dprec = J(0, 1, 0)
+    if (s.q > 0) {
+      dq = colsum(s.w0 :* (s.Q :^ 2))'
+      s.dprec = dq
+    }
+    for (d = 1; d <= s.D; d++) {
+      ends = s.ends[|s.eoff[d] + 1 \ s.eoff[d] + s.elen[d]|]
+      gg = _d2s_grpsum(s.w0, s.P2[., d], ends)
+      if (s.has0[d] == 1) {
+        gg = gg[|2, 1 \ rows(gg), 1|]
+      }
+      s.dprec = s.dprec \ gg
+    }
+    s.dprec = s.dprec + (s.dprec :<= 0)
+
+    return(s)
+  }
+
+  /* Corrected VCV: the construct_V() formula with (X10'WX10)^- applied
+     iteratively.
+       B = (X10'WX10)^- X1'W X2 ; Z = X1 B
+       S = X2 .* (w u2) - Z .* (w u1)
+       V = (X2'WX2)^-1 [sum_g S_g' S_g] (X2'WX2)^-1                       */
+  real matrix _d2s_hdfe_V(struct _d2s_prob scalar s, string scalar x2names, string scalar u2name, string scalar clname, string scalar tousename, real scalar tol, real scalar maxiter)
+  {
+    real matrix X2, C, B, Z, S, A, info, meat, bread
+    real colvector u2, clv, p
+    real scalar k2, G, g
+
+    X2  = st_data(., tokens(x2names), tousename)
+    u2  = st_data(., u2name, tousename)
+    clv = st_data(., clname, tousename)
+    k2  = cols(X2)
+
+    C = _d2s_XtWv(s, s.w :* X2)
+    B = _d2s_pcg(s, C, tol, maxiter)
+    Z = _d2s_Xv(s, B)
+
+    S = (X2 :* (s.w :* u2)) - (Z :* (s.w :* s.first_u))
+
+    p    = order(clv, 1)
+    S    = S[p, .]
+    info = panelsetup(clv[p], 1)
+    G    = rows(info)
+    A = J(G, k2, 0)
+    for (g = 1; g <= G; g++) {
+      A[g, .] = colsum(panelsubmatrix(S, g, info))
+    }
+
+    meat  = cross(A, A)
+    bread = invsym(cross(X2, s.w, X2))
+
+    st_numscalar("__d2s_rmax", s.rmax)
+    return(bread * meat * bread)
+  }
+
+  /* ---- classic path, unchanged ---- */
+
   matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
 
     real colvector treat, cluster_var, first_u, second_u, weights, w0, p

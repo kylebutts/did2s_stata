@@ -1,6 +1,7 @@
 {smcl}
-{it:v. 0.3} 
+{it:v. 0.7}
 {viewerjumpto "Anticipation" "did2s##anticipation"}{...}
+{viewerjumpto "Absorbing fixed effects" "did2s##absorb"}{...}
 
 {title:Two-Stage Difference-in-Differences}
 
@@ -11,17 +12,23 @@
 {title:Syntax}
 
 {phang2}
-{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)}
+{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)} [{cmdab:absorb(}{help varlist}{cmd:)} {cmdab:first_stage(}{help varlist}{cmd:)} {it:options}]
+
+{pstd}
+One of {opt first_stage()} or {opt absorb()} is required. They may be combined.
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
 {synoptline}
 {syntab:Model}
-{synopt :{opth first_stage(varlist)}}Fixed effects and covariates that will be used to estimate counterfactual Y_it(0). This should be everything besides treatment variables.{p_end}
+{synopt :{opth absorb(varlist)}}Categorical variables whose fixed effects are absorbed with {help reghdfe}. Unit and time effects normally belong here.{p_end}
+{synopt :{opth first_stage(varlist)}}First-stage covariates other than fixed effects listed in {opt absorb()}. Factor-variable notation is allowed. With no {opt absorb()}, this retains the original explicit-dummy behavior.{p_end}
 {synopt :{opth second_stage(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
 {synopt :{opth treatment(varname)}}This must be a 0/1 dummy for when treatment is occuring; D_it = 1 if unit i is treated during period t. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation (shift D_it the number of periods of anticipation).{p_end}
 {synopt :{opth cluster(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
 {synopt :{opth unit(varname)}}Unit variable. If you use this option, *do not include unit fixed effects* in the first_stage regression. This is a trick that speeds up numerical computation that will speed things up a bunch if you have a lot of unit fixed effects. Note that the numerical equivalency only works if clutser is at the unit level (or higher!! e.g. units = people, cluster at state level) {p_end}
+{synopt :{opt tol:erance(#)}}Relative residual tolerance for the matrix-free variance correction. Default {cmd:tolerance(1e-10)}.{p_end}
+{synopt :{opt maxit:er(#)}}Maximum iterations for each variance-correction solve. Default {cmd:maxiter(2000)}.{p_end}
 {synoptline}
 {p2colreset}{...}
 
@@ -53,19 +60,51 @@ This procedure works so long as μ_i and μ_t are consistently estimated. The ke
 The fixed effects could be biased/inconsistent if there are anticipation effects, i.e. units respond before treatment starts. The fix is fairly simple, simply “shift” treatment date earlier by as many years as you suspect anticipation to occur (e.g. 2 years before treatment starts) and estimate on the subsample where the shifted treatment equals zero. If you suspect there is anticipation, pass this modified variable to {bf: treat_var}.
 {p_end}
 
+{marker absorb}
+{title:Absorbing fixed effects}
+
+{pstd}
+{opt absorb()} requires {help reghdfe}. Install it with {cmd:ssc install reghdfe}.
+The first stage is estimated on untreated observations with {cmd:reghdfe}. Saved
+fixed-effect estimates are then propagated to treated observations with the
+same fixed-effect levels. This reproduces the role of absorbed fixed effects in
+the R implementation without materializing a dummy for every level.
+{p_end}
+
+{pstd}
+Put ordinary categorical fixed effects in {opt absorb()} and other controls in
+{opt first_stage()}. For example, R's
+{cmd:first_stage = ~ x1 + x2 | unit + year} corresponds to
+{cmd:first_stage(x1 x2) absorb(unit year)}. {opt absorb()} may not be combined
+with {opt unit()}.
+{p_end}
+
+{pstd}
+The corrected variance calculation applies the first-stage cross-product as a
+linear operator and does not construct the full fixed-effect dummy matrix.
+{opt tolerance()} and {opt maxiter()} control this iterative solve.
+{p_end}
+
 {marker untreated}
 {title:No Never-treated Group}
 
 {pstd}
-When all units are treated in a year or when some units are always treated, then the time or unit fixed effects can not be estimated. The software could be designed to be able to detect this and automatically drop these observations. However, I have chosen not to do this as it would require a major change in API that would limit the flexibility of the program. As an example, requiring an option for "year fixed effects" would prevent the user from specifying gender-specific year fixed effects. The flexibility of the method (i.e. specifying a well-designed model for untreated outcomes) in my opinion outweighs the cost of not being able to detect this case (I think practically, there are relatively few cases of no never-treated group).
+With {opt absorb()}, observations are dropped when any absorbed fixed-effect
+level is absent from the untreated estimation sample. Their counterfactual
+outcomes are not identified. {cmd:e(N)} and {cmd:e(sample)} reflect the reduced
+sample. The original explicit-dummy path cannot detect this case reliably; use
+{opt absorb()} when unsupported levels are possible.
 {p_end}
 
 
 {marker warning}
 {title:Important Warning}
 
-Due to the way Stata handles the `predict` command, users of this package should be careful when they have always-treated units in their data or if all units end up treated before the end of the panel. 
-If any value of `i.unit` or `i.year` are not estimated, then predict will estimate them as 0s which can predict very weird results. 
+With the explicit-dummy path, users should be careful when they have
+always-treated units or when all units become treated before the end of the
+panel. Stata may predict an unestimated dummy coefficient as zero. The
+{opt absorb()} path instead leaves unsupported fixed effects missing and drops
+those observations with a note.
 
 {title:Examples:}
 
@@ -74,6 +113,7 @@ If any value of `i.unit` or `i.year` are not estimated, then predict will estima
 
 {pstd}Static Model{p_end}
 {phang2}{cmd:. did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)}{p_end}
+{phang2}{cmd:. did2s dep_var, absorb(state year) second_stage(i.treat) treatment(treat) cluster(state)}{p_end}
 
 {pstd}Event Study Model{p_end}
 {phang2}{cmd:. gen rel_year_shift = rel_year + 20}{p_end}
@@ -85,6 +125,7 @@ If any value of `i.unit` or `i.year` are not estimated, then predict will estima
 {phang2}{cmd:. global demo blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44}{p_end}
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
+{phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage($demo) absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 
 
 
@@ -105,6 +146,7 @@ If any value of `i.unit` or `i.year` are not estimated, then predict will estima
 {synopt:{cmd:e(cmdline)}}command as typed{p_end}
 {synopt:{cmd:e(depvar)}}name of dependent variable{p_end}
 {synopt:{cmd:e(clustvar)}}name of cluster variable{p_end}
+{synopt:{cmd:e(absorb)}}absorbed fixed-effect variables, when specified{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Matrices}{p_end}
@@ -126,7 +168,6 @@ buttskyle96@gmail.com     {break}
 {phang}
 Gardner (2021), {browse "https://jrgcmu.github.io/2sdd_current.pdf":Two-stage Difference-in-differences}
 {p_end}
-
 
 
 

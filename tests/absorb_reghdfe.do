@@ -27,6 +27,8 @@ local k = colsof(b)
 assert abs(b[1, `k'] - 2.380156) < 1e-5
 assert abs(sqrt(V[`k', `k']) - .0614383) < 1e-5
 assert e(N) == _N
+assert "`e(cmd)'" == "did2s"
+assert "`e(depvar)'" == "dep_var"
 
 * The original factor-variable syntax remains supported. It uses reghdfe,
 * but materializes the fixed-effect indicators instead of absorbing them.

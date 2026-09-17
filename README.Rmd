@@ -34,6 +34,9 @@ You can install did2s from github with:
 ```stata
 net install did2s, replace from("https://raw.githubusercontent.com/kylebutts/did2s_stata/main/ado/")
 * ssc install did2s
+
+* did2s requires reghdfe 5.7.3 or newer
+ssc install reghdfe, replace
 ```
 
 ## Two-stage Difference-in-differences [@Gardner_2021]

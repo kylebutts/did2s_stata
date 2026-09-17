@@ -1,8 +1,10 @@
-v 0.3
-d 'did2s': Run two-stage differnece-in-differences following Gardner (2021)
+v 0.7
+d 'did2s': Run two-stage difference-in-differences following Gardner (2021)
 d 
-d Distribution-Date:   20210526
+d Distribution-Date:   20260917
 d License: MIT
+d Requires: reghdfe >= 5.7.3
+d Requires: ftools
 d 
 F did2s.ado
 F did2s.sthlp

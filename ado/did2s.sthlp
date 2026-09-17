@@ -34,6 +34,10 @@
 {pstd}
 {bf:did2s} implements Two-Staged Difference-in-Differences by Gardner (2021). A TWFE model for outcomes is given by unit/group fixed effects, time fixed effects, treatment variable (or variables in the case of event study), and potentially covariates. To avoid the problems with OLS estimation of difference-in-differences/event-studies in the presence of staggered treatment adoption, this method proceeds in two stages:{p_end}
 
+{pstd}
+{bf:did2s} requires {help reghdfe} version 5.7.3 or newer. Install or update
+it with {cmd:ssc install reghdfe, replace}.{p_end}
+
 {phang2}
 1. This program estimates the unit/group fixed effects, time fixed effects, and potentially covariates using only untreated/not-yet-treated observations. This is used to predict counterfactual outcomes in all periods and residualize the observed outcome.{p_end}
 
@@ -160,5 +164,4 @@ buttskyle96@gmail.com     {break}
 {phang}
 Gardner (2021), {browse "https://jrgcmu.github.io/2sdd_current.pdf":Two-stage Difference-in-differences}
 {p_end}
-
 

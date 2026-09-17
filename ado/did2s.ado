@@ -32,56 +32,45 @@ program define did2s, eclass sortpreserve
       exit(198)
     }
 
-    if("`weight'" == "") {
-      local weightexp = ""
-    } 
-    else {
-      local weightexp "`weight'=`exp'"
-    }
-
-    capture which reghdfe
+    capture noisily ms_get_version reghdfe, min_version("5.7.3")
     if (_rc != 0) {
-      display as error "{bf:did2s} requires {bf:reghdfe}"
-      display as error "install it with {bf:ssc install reghdfe}"
+      display as error "{bf:did2s} requires {bf:reghdfe} version 5.7.3 or newer"
+      display as error "install or update it with {bf:ssc install reghdfe, replace}"
       exit(199)
     }
 
-    * Mata reads the weight with st_data(), which requires a variable name,
-    * so an expression such as [aw = pop*2] must be materialized first.
+    * Materialize the weight once for reghdfe, regress, and Mata.
+    tempvar wvar
     if ("`weight'" != "") {
-      tempvar wvar
       qui gen double `wvar' = `exp'
-      local hdfeweightexp "`weight'=`wvar'"
+      local weightexp "[`weight'=`wvar']"
     }
     else {
-      local wvar = ""
-      local hdfeweightexp = ""
+      quietly gen double `wvar' = 1
+      local weightexp ""
     }
+
+    * Expand each factor-variable specification once. The generated variables
+    * are used for both sample marking and the matrix calculations below.
+    local Qvars ""
+    if ("`first_stage'" != "") {
+      fvrevar `first_stage' if `touse'
+      local Qvars "`r(varlist)'"
+    }
+    fvrevar `second_stage' if `touse'
+    local full_second_stage "`r(varlist)'"
 
     markout `touse' `varlist' `treatment' `cluster'
     if ("`absorb'" != "") markout `touse' `absorb'
-    if ("`wvar'" != "") markout `touse' `wvar'
-    if ("`first_stage'" != "") {
-      fvrevar `first_stage', list
-      markout `touse' `r(varlist)'
-    }
-    fvrevar `second_stage', list
-    markout `touse' `r(varlist)'
+    markout `touse' `wvar'
+    if ("`Qvars'" != "") markout `touse' `Qvars'
+    markout `touse' `full_second_stage'
 
     quietly count if `touse' & !inlist(`treatment', 0, 1)
     if (r(N) > 0) {
       display as error "option {bf:treatment()} must identify treatment with only 0 and 1"
       exit(459)
     }
-
-    local Qvars ""
-    if ("`first_stage'" != "") {
-      fvrevar `first_stage' if `touse'
-      local Qvars "`r(varlist)'"
-    }
-
-    fvrevar `second_stage' if `touse'
-    local full_second_stage `r(varlist)'
 
     *-> Stage 1. Save each absorbed effect separately so it can be propagated
     *   to treated observations sharing a level observed in the untreated
@@ -103,9 +92,17 @@ program define did2s, eclass sortpreserve
       local fehatvars "`fehatvars' `fehat'"
     }
 
-    quietly reghdfe `varlist' `Qvars' [`hdfeweightexp'] ///
+    tempvar first_u
+    quietly reghdfe `varlist' `Qvars' `weightexp' ///
       if `touse' & `treatment' == 0, absorb(`absorb_spec') ///
-      noconstant keepsingletons verbose(-1)
+      noconstant keepsingletons residuals(`first_u') verbose(-1)
+    quietly replace `first_u' = 0 if `touse' & `treatment' == 1
+    quietly replace `first_u' = 0 if `touse' & missing(`first_u') & `wvar' == 0
+    quietly count if `touse' & `treatment' == 0 & missing(`first_u')
+    if (r(N) > 0) {
+      display as error "reghdfe excluded untreated observations from the first stage"
+      exit(2000)
+    }
 
     tempvar xb y0hat adj
     if ("`Qvars'" != "") {
@@ -114,16 +111,8 @@ program define did2s, eclass sortpreserve
     else {
       quietly gen double `xb' = 0 if `touse'
     }
-    quietly gen double `y0hat' = `xb' if `touse'
-
-    local i = 1
-    foreach fe of varlist `absorb_vars' {
-      local fehat : word `i' of `fehatvars'
-      gsort `fe' -`fehat'
-      quietly by `fe': replace `fehat' = `fehat'[1] if missing(`fehat') & `touse'
-      quietly replace `y0hat' = `y0hat' + `fehat' if `touse'
-      local ++i
-    }
+    _did2s_recover_fe, touse(`touse') absorb(`absorb_vars') ///
+      estimates(`fehatvars') xb(`xb') generate(`y0hat')
 
     quietly gen double `adj' = `varlist' - `y0hat' if `touse'
     quietly count if `touse' & missing(`adj')
@@ -139,26 +128,29 @@ program define did2s, eclass sortpreserve
       exit(2000)
     }
 
-    tempvar first_u
-    quietly gen double `first_u' = `adj' * (1 - `treatment') if `touse'
-
     capture mata: mata drop __D2S
     mata: __D2S = _d2s_setup("`Qvars'", "`absorb_vars'", "`treatment'", "`touse'", "`wvar'", "`first_u'")
 
     *-> Second Stage
-    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons
+    quietly reg `adj' `second_stage' `weightexp' if `touse', ///
+      nocons depname(`varlist')
 
       tempname b_second omit
       matrix `b_second' = e(b)
       _ms_omit_info `b_second'
       matrix `omit' = r(omit)
-      local vars_second: colnames e(b)
+
+      local n_expanded : word count `full_second_stage'
+      if (`n_expanded' != colsof(`b_second')) {
+        display as error "internal error matching expanded second-stage variables"
+        exit(503)
+      }
 
       local i = 1
       local newlist
-      foreach var in `vars_second' {
+      foreach var of local full_second_stage {
         if `omit'[1,`i'] == 0 {
-          if ("`var'" != "_cons") local newlist "`newlist' `var'"
+          local newlist "`newlist' `var'"
         }
         local ++i
       }
@@ -166,6 +158,12 @@ program define did2s, eclass sortpreserve
 
     tempvar second_u
     quietly predict double `second_u' if `touse', residual
+    tempname b
+    matrix `b' = e(b)
+    local V_names: colnames `b'
+    local N = e(N)
+    tempvar finalsample
+    quietly gen byte `finalsample' = e(sample)
 
     *-> SE correction
     mata: V = construct_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
@@ -179,14 +177,6 @@ program define did2s, eclass sortpreserve
     capture scalar drop __d2s_rmax
 
     *-> Export
-    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
-    tempname b
-    matrix `b' = e(b)
-    local V_names: rownames e(V)
-    local N = e(N)
-    tempvar finalsample
-    quietly gen byte `finalsample' = e(sample)
-
     tempname V_final
     mata: st_matrix(st_local("V_final"), construct_V_final(V))
 
@@ -194,16 +184,38 @@ program define did2s, eclass sortpreserve
     matrix colnames `V_final' = `V_names'
 
     ereturn clear
-    ereturn post `b' `V_final', esample(`finalsample')
+    ereturn post `b' `V_final', esample(`finalsample') obs(`N') depname(`varlist')
     ereturn local cmdline `"`0'"'
     ereturn local cmd "did2s"
     ereturn local clustvar "`cluster'"
     ereturn local absorb "`absorb'"
-    ereturn scalar N = `N'
 
     ereturn display
 
     capture mata: mata drop __D2S
+end
+
+* Carry separately saved fixed effects to observations with the same level.
+* This is the part of prediction that reghdfe's predict cannot do outside
+* its untreated estimation sample.
+capture program drop _did2s_recover_fe
+program define _did2s_recover_fe, sortpreserve
+    version 13
+    syntax, TOUSE(varname) ABSorb(varlist numeric) ///
+      ESTimates(varlist numeric) XB(varname numeric) GENerate(name)
+
+    local n_absorb : word count `absorb'
+    local n_estimates : word count `estimates'
+    if (`n_absorb' != `n_estimates') exit(503)
+
+    quietly gen double `generate' = `xb' if `touse'
+    forvalues i = 1/`n_absorb' {
+      local fe : word `i' of `absorb'
+      local fehat : word `i' of `estimates'
+      gsort `fe' -`fehat'
+      quietly by `fe': replace `fehat' = `fehat'[1] if missing(`fehat') & `touse'
+      quietly replace `generate' = `generate' + `fehat' if `touse'
+    }
 end
 
 * Mata Functions
@@ -220,7 +232,7 @@ capture mata mata drop _d2s_setup()
 mata: 
 
   struct _d2s_prob {
-    real scalar     N, q, D, k1, kfe, rmax
+    real scalar     N, q, D, k1, rmax
     real colvector  w, w0, treat, first_u, dprec, ends
     real matrix     Q, LEV, P2
     real rowvector  Ld, has0, eoff, elen
@@ -424,8 +436,7 @@ mata:
       s.ends = s.ends \ inf[., 2]
     }
 
-    s.kfe = sum(s.Ld)
-    s.k1  = s.q + s.kfe
+    s.k1 = s.q + sum(s.Ld)
 
     /* Jacobi preconditioner: diag(X10' W X10) */
     s.dprec = J(0, 1, 0)
@@ -458,13 +469,10 @@ mata:
     real matrix X2, first_stage_rhs, first_stage_coef, first_stage_fitted
     real matrix influence, cluster_influence, info, x2tx2_inv, cov
     real colvector u2, clv, p
-    real scalar k2, G, g
 
     X2  = st_data(., tokens(x2names), tousename)
     u2  = st_data(., u2name, tousename)
     clv = st_data(., clname, tousename)
-    k2  = cols(X2)
-
     /* Map estimation noise from the untreated first stage into each
        second-stage coefficient without constructing X10' W X10. */
     first_stage_rhs = _d2s_XtWv(s, s.w :* X2)
@@ -482,14 +490,9 @@ mata:
       (first_stage_fitted :* (s.w :* s.first_u))) * x2tx2_inv
 
     /* Sum influence functions within cluster, then take their cross-product. */
-    p         = order(clv, 1)
-    influence = influence[p, .]
+    p = order(clv, 1)
     info = panelsetup(clv[p], 1)
-    G    = rows(info)
-    cluster_influence = J(G, k2, 0)
-    for (g = 1; g <= G; g++) {
-      cluster_influence[g, .] = colsum(panelsubmatrix(influence, g, info))
-    }
+    cluster_influence = _d2s_grpsum(influence, p, info[., 2])
     cov = cross(cluster_influence, cluster_influence)
 
     st_numscalar("__d2s_rmax", s.rmax)
@@ -498,20 +501,12 @@ mata:
 
   matrix construct_V_final(numeric matrix V_adj){
     matrix V_final, omit, idx
-    scalar i, j
- 
     omit = st_matrix(st_local("omit"))
     V_final = J(length(omit), length(omit), 0)
 
     /* index of non-omitted variables */
     idx = select(1..length(omit), omit :== 0)
-
-    for(i = 1; i <= length(idx); i++) {
-      for(j = 1; j <= i; j++) {
-        V_final[idx[i], idx[j]] = V_adj[i,j]
-        V_final[idx[j], idx[i]] = V_adj[i,j]
-      }
-    }
+    V_final[idx, idx] = V_adj
     
     return(V_final)
   }

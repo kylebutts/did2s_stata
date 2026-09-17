@@ -11,6 +11,10 @@ do ado/did2s.ado
 * Static
 ********************************************************************************
 
+* Original factor-variable syntax (supported, but slower for large FEs)
+did2s dep_var, first_stage(i.unit i.year) second_stage(i.treat) treatment(treat) cluster(state)
+
+* Faster equivalent
 did2s dep_var, absorb(unit year) second_stage(i.treat) treatment(treat) cluster(state)
 
 * Example esttab

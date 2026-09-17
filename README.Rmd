@@ -40,10 +40,10 @@ net install did2s, replace from("https://raw.githubusercontent.com/kylebutts/did
 
 I have created an Stata package with the help of John Gardner to estimate the two-stage procedure. The command is `did2s` which estimates the two-stage did procedure. This function requires the following syntax
 
-`did2s depvar [if] [in] [weight], absorb(varlist) second_stage(varlist) treatment(varname) cluster(varname) [first_stage(varlist)]`
+`did2s depvar [if] [in] [weight], second_stage(varlist) treatment(varname) cluster(varname) [first_stage(varlist) absorb(varlist)]`
 
-- `absorb`: categorical fixed effects used to estimate counterfactual outcomes
-- `first_stage`: optional first-stage covariates other than the absorbed fixed effects
+- `first_stage`: first-stage covariates and/or fixed effects written with factor-variable notation; required unless `absorb` is specified
+- `absorb`: optional categorical fixed effects; faster than including large fixed effects with `i.` in `first_stage`
 - `second_stage`: List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable
 - `treatment`: This has to be the 0/1 treatment variable that marks when treatment turns on for a unit. If you suspect anticipation, see note above for accounting for this.
 - `cluster`: Which variable to cluster on.
@@ -58,6 +58,10 @@ To view the documentation, type `help did2s` into the console.
 
 use data/df_het.dta
 
+* Original syntax remains valid
+did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)
+
+* Faster equivalent using absorbed fixed effects
 did2s dep_var, absorb(state year) second_stage(i.treat) treatment(treat) cluster(state)
 ```
 
@@ -100,10 +104,10 @@ did2s l_homicide [aweight=popwt], first_stage($demo) absorb(sid year) second_sta
 
 ### Large Datasets or Many Fixed Effects
 
-Both first-stage estimation and the corrected variance calculation avoid
-materializing the full fixed-effect dummy matrix. Computational cost therefore
-scales with the observations and absorbed dimensions rather than with the
-square of the number of fixed-effect levels.
+Fixed effects written with `i.` in `first_stage()` are materialized for backward
+compatibility. With `absorb()`, both first-stage estimation and the corrected
+variance calculation avoid materializing the full fixed-effect dummy matrix.
+Use `absorb()` for large fixed effects.
 
 
 ## References

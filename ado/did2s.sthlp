@@ -12,14 +12,14 @@
 {title:Syntax}
 
 {phang2}
-{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:absorb(}{help varlist}{cmd:)} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)} [{cmdab:first_stage(}{help varlist}{cmd:)} {it:options}]
+{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)} [{cmdab:first_stage(}{help varlist}{cmd:)} {cmdab:absorb(}{help varlist}{cmd:)} {it:options}]
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
 {synoptline}
 {syntab:Model}
-{synopt :{opth absorb(varlist)}}Categorical variables whose fixed effects are absorbed with {help reghdfe}. Unit and time effects normally belong here.{p_end}
-{synopt :{opth first_stage(varlist)}}Optional first-stage covariates other than the fixed effects listed in {opt absorb()}. Factor-variable notation is allowed.{p_end}
+{synopt :{opth first_stage(varlist)}}First-stage covariates and/or fixed effects in factor-variable notation. Required unless {opt absorb()} is specified.{p_end}
+{synopt :{opth absorb(varlist)}}Optional categorical variables whose fixed effects are absorbed with {help reghdfe}. This is faster than listing large fixed effects with {cmd:i.} in {opt first_stage()}.{p_end}
 {synopt :{opth second_stage(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
 {synopt :{opth treatment(varname)}}This must be a 0/1 dummy for when treatment is occuring; D_it = 1 if unit i is treated during period t. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation (shift D_it the number of periods of anticipation).{p_end}
 {synopt :{opth cluster(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
@@ -60,16 +60,18 @@ The fixed effects could be biased/inconsistent if there are anticipation effects
 {title:Absorbing fixed effects}
 
 {pstd}
-{opt absorb()} requires {help reghdfe}. Install it with {cmd:ssc install reghdfe}.
-The first stage is estimated on untreated observations with {cmd:reghdfe}. Saved
+{bf:did2s} uses {help reghdfe} for the first stage. Install it with
+{cmd:ssc install reghdfe}. Saved
 fixed-effect estimates are then propagated to treated observations with the
 same fixed-effect levels. This reproduces the role of absorbed fixed effects in
 the R implementation without materializing a dummy for every level.
 {p_end}
 
 {pstd}
-Put ordinary categorical fixed effects in {opt absorb()} and other controls in
-{opt first_stage()}. For example, R's
+Existing calls such as {cmd:first_stage(i.unit i.year)} remain valid. They
+materialize the fixed-effect indicators and can therefore be slower. For large
+fixed effects, put the categorical variables in {opt absorb()} and other
+controls in {opt first_stage()}. For example, R's
 {cmd:first_stage = ~ x1 + x2 | unit + year} corresponds to
 {cmd:first_stage(x1 x2) absorb(unit year)}.
 {p_end}
@@ -158,6 +160,5 @@ buttskyle96@gmail.com     {break}
 {phang}
 Gardner (2021), {browse "https://jrgcmu.github.io/2sdd_current.pdf":Two-stage Difference-in-differences}
 {p_end}
-
 
 

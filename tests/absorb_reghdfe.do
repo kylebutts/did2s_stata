@@ -28,6 +28,18 @@ assert abs(b[1, `k'] - 2.380156) < 1e-5
 assert abs(sqrt(V[`k', `k']) - .0614383) < 1e-5
 assert e(N) == _N
 
+* The original factor-variable syntax remains supported. It uses reghdfe,
+* but materializes the fixed-effect indicators instead of absorbing them.
+quietly did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) ///
+    treatment(treat) cluster(state)
+matrix b_factor = e(b)
+matrix V_factor = e(V)
+assert abs(b_factor[1, colsof(b_factor)] - 2.380156) < 1e-5
+assert abs(sqrt(V_factor[colsof(V_factor), colsof(V_factor)]) - .0614383) < 1e-5
+assert mreldif(b_factor, b) < 1e-8
+assert mreldif(V_factor, V) < 1e-6
+assert e(N) == _N
+
 * Event study.
 quietly did2s dep_var, absorb(state year) second_stage(ib100.rel) ///
     treatment(treat) cluster(state)
@@ -74,7 +86,7 @@ assert absorb_sample == 0 if unit <= 10
 assert N_auto == _N - 310
 restore
 
-* absorb() is required.
+* At least one first-stage specification is required.
 capture noisily did2s dep_var, second_stage(i.treat) ///
     treatment(treat) cluster(state)
 assert _rc == 198

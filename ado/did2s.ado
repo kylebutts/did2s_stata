@@ -1,4 +1,4 @@
-*! version 0.7  absorb(): first stage with absorbed fixed effects
+*! version 0.7  reghdfe first stage with optional absorbed fixed effects
 
 * Main function
 capture program drop did2s
@@ -6,7 +6,11 @@ program define did2s, eclass sortpreserve
   *-> Setup
 
     version 13
-    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], ABSorb(varlist numeric) second_stage(varlist fv) TREATment(varname) cluster(varname) [ first_stage(varlist fv) TOLerance(real 1e-10) MAXITer(integer 2000) ]
+    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], second_stage(varlist fv) TREATment(varname) cluster(varname) [ ABSorb(varlist numeric) first_stage(varlist fv) TOLerance(real 1e-10) MAXITer(integer 2000) ]
+    if ("`absorb'" == "" & "`first_stage'" == "") {
+      display as error "one of {bf:first_stage()} or {bf:absorb()} is required"
+      exit(198)
+    }
     if (`tolerance' <= 0) {
       display as error "option {bf:tolerance()} must be positive"
       exit(198)
@@ -37,7 +41,7 @@ program define did2s, eclass sortpreserve
 
     capture which reghdfe
     if (_rc != 0) {
-      display as error "option {bf:absorb()} requires {bf:reghdfe}"
+      display as error "{bf:did2s} requires {bf:reghdfe}"
       display as error "install it with {bf:ssc install reghdfe}"
       exit(199)
     }
@@ -54,7 +58,8 @@ program define did2s, eclass sortpreserve
       local hdfeweightexp = ""
     }
 
-    markout `touse' `varlist' `treatment' `cluster' `absorb'
+    markout `touse' `varlist' `treatment' `cluster'
+    if ("`absorb'" != "") markout `touse' `absorb'
     if ("`wvar'" != "") markout `touse' `wvar'
     if ("`first_stage'" != "") {
       fvrevar `first_stage', list
@@ -81,20 +86,29 @@ program define did2s, eclass sortpreserve
     *-> Stage 1. Save each absorbed effect separately so it can be propagated
     *   to treated observations sharing a level observed in the untreated
     *   estimation sample.
+    local absorb_vars "`absorb'"
+    if ("`absorb_vars'" == "") {
+      * reghdfe still supplies the intercept; the user-requested factor
+      * variables remain explicit regressors, preserving the original syntax.
+      tempvar intercept_fe
+      quietly gen byte `intercept_fe' = 1 if `touse'
+      local absorb_vars "`intercept_fe'"
+    }
+
     local absorb_spec ""
     local fehatvars ""
-    foreach fe of varlist `absorb' {
+    foreach fe of varlist `absorb_vars' {
       tempvar fehat
       local absorb_spec "`absorb_spec' `fehat'=`fe'"
       local fehatvars "`fehatvars' `fehat'"
     }
 
-    quietly reghdfe `varlist' `first_stage' [`hdfeweightexp'] ///
+    quietly reghdfe `varlist' `Qvars' [`hdfeweightexp'] ///
       if `touse' & `treatment' == 0, absorb(`absorb_spec') ///
       noconstant keepsingletons verbose(-1)
 
     tempvar xb y0hat adj
-    if ("`first_stage'" != "") {
+    if ("`Qvars'" != "") {
       quietly predict double `xb' if `touse', xb
     }
     else {
@@ -103,7 +117,7 @@ program define did2s, eclass sortpreserve
     quietly gen double `y0hat' = `xb' if `touse'
 
     local i = 1
-    foreach fe of varlist `absorb' {
+    foreach fe of varlist `absorb_vars' {
       local fehat : word `i' of `fehatvars'
       gsort `fe' -`fehat'
       quietly by `fe': replace `fehat' = `fehat'[1] if missing(`fehat') & `touse'
@@ -129,7 +143,7 @@ program define did2s, eclass sortpreserve
     quietly gen double `first_u' = `adj' * (1 - `treatment') if `touse'
 
     capture mata: mata drop __D2S
-    mata: __D2S = _d2s_setup("`Qvars'", "`absorb'", "`treatment'", "`touse'", "`wvar'", "`first_u'")
+    mata: __D2S = _d2s_setup("`Qvars'", "`absorb_vars'", "`treatment'", "`touse'", "`wvar'", "`first_u'")
 
     *-> Second Stage
     quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons

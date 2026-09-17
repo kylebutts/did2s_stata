@@ -36,5 +36,5 @@ gen `touse' = 1
 
 /* use "https://github.com/scunning1975/mixtape/raw/master/castle.dta", clear
 
-did2s l_homicide [pw=popwt], first_stage(i.year i.sid) second_stage(post) treatment(post) cluster(sid)
+did2s l_homicide [pw=popwt], absorb(sid year) second_stage(post) treatment(post) cluster(sid)
 */

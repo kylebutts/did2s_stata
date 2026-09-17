@@ -12,21 +12,17 @@
 {title:Syntax}
 
 {phang2}
-{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)} [{cmdab:absorb(}{help varlist}{cmd:)} {cmdab:first_stage(}{help varlist}{cmd:)} {it:options}]
-
-{pstd}
-One of {opt first_stage()} or {opt absorb()} is required. They may be combined.
+{cmd:did2s} {depvar} {ifin} [{it:{help regress##weight:weight}}]{cmd:,} {cmdab:absorb(}{help varlist}{cmd:)} {cmdab:second_stage(}{help varlist}{cmd:)} {cmdab:treatment(}{help varname}{cmd:)} {cmdab:cluster(}{help varname}{cmd:)} [{cmdab:first_stage(}{help varlist}{cmd:)} {it:options}]
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
 {synoptline}
 {syntab:Model}
 {synopt :{opth absorb(varlist)}}Categorical variables whose fixed effects are absorbed with {help reghdfe}. Unit and time effects normally belong here.{p_end}
-{synopt :{opth first_stage(varlist)}}First-stage covariates other than fixed effects listed in {opt absorb()}. Factor-variable notation is allowed. With no {opt absorb()}, this retains the original explicit-dummy behavior.{p_end}
+{synopt :{opth first_stage(varlist)}}Optional first-stage covariates other than the fixed effects listed in {opt absorb()}. Factor-variable notation is allowed.{p_end}
 {synopt :{opth second_stage(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
 {synopt :{opth treatment(varname)}}This must be a 0/1 dummy for when treatment is occuring; D_it = 1 if unit i is treated during period t. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation (shift D_it the number of periods of anticipation).{p_end}
 {synopt :{opth cluster(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
-{synopt :{opth unit(varname)}}Unit variable. If you use this option, *do not include unit fixed effects* in the first_stage regression. This is a trick that speeds up numerical computation that will speed things up a bunch if you have a lot of unit fixed effects. Note that the numerical equivalency only works if clutser is at the unit level (or higher!! e.g. units = people, cluster at state level) {p_end}
 {synopt :{opt tol:erance(#)}}Relative residual tolerance for the matrix-free variance correction. Default {cmd:tolerance(1e-10)}.{p_end}
 {synopt :{opt maxit:er(#)}}Maximum iterations for each variance-correction solve. Default {cmd:maxiter(2000)}.{p_end}
 {synoptline}
@@ -75,8 +71,7 @@ the R implementation without materializing a dummy for every level.
 Put ordinary categorical fixed effects in {opt absorb()} and other controls in
 {opt first_stage()}. For example, R's
 {cmd:first_stage = ~ x1 + x2 | unit + year} corresponds to
-{cmd:first_stage(x1 x2) absorb(unit year)}. {opt absorb()} may not be combined
-with {opt unit()}.
+{cmd:first_stage(x1 x2) absorb(unit year)}.
 {p_end}
 
 {pstd}
@@ -92,19 +87,16 @@ linear operator and does not construct the full fixed-effect dummy matrix.
 With {opt absorb()}, observations are dropped when any absorbed fixed-effect
 level is absent from the untreated estimation sample. Their counterfactual
 outcomes are not identified. {cmd:e(N)} and {cmd:e(sample)} reflect the reduced
-sample. The original explicit-dummy path cannot detect this case reliably; use
-{opt absorb()} when unsupported levels are possible.
+sample.
 {p_end}
 
 
 {marker warning}
 {title:Important Warning}
 
-With the explicit-dummy path, users should be careful when they have
-always-treated units or when all units become treated before the end of the
-panel. Stata may predict an unestimated dummy coefficient as zero. The
-{opt absorb()} path instead leaves unsupported fixed effects missing and drops
-those observations with a note.
+When some absorbed fixed-effect level is never observed untreated, its
+counterfactual cannot be imputed. {cmd:did2s} leaves that prediction missing and
+drops the affected observations with a note.
 
 {title:Examples:}
 
@@ -112,19 +104,17 @@ those observations with a note.
 {phang2}{cmd:. use https://github.com/kylebutts/did2s_stata/raw/main/data/df_hom.dta, clear}{p_end}
 
 {pstd}Static Model{p_end}
-{phang2}{cmd:. did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)}{p_end}
 {phang2}{cmd:. did2s dep_var, absorb(state year) second_stage(i.treat) treatment(treat) cluster(state)}{p_end}
 
 {pstd}Event Study Model{p_end}
 {phang2}{cmd:. gen rel_year_shift = rel_year + 20}{p_end}
 {phang2}{cmd:. replace rel_year_shift = 100 if rel_year_shift == .}{p_end}
-{phang2}{cmd:. did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)}{p_end}
+{phang2}{cmd:. did2s dep_var, absorb(state year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)}{p_end}
 
 {pstd}With Covariates{p_end}
 {phang2}{cmd:. use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear}{p_end}
 {phang2}{cmd:. global demo blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44}{p_end}
-{phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
-{phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
+{phang2}{cmd:. did2s l_homicide [aweight=popwt], absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage($demo) absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 
 
@@ -146,7 +136,7 @@ those observations with a note.
 {synopt:{cmd:e(cmdline)}}command as typed{p_end}
 {synopt:{cmd:e(depvar)}}name of dependent variable{p_end}
 {synopt:{cmd:e(clustvar)}}name of cluster variable{p_end}
-{synopt:{cmd:e(absorb)}}absorbed fixed-effect variables, when specified{p_end}
+{synopt:{cmd:e(absorb)}}absorbed fixed-effect variables{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Matrices}{p_end}
@@ -168,7 +158,6 @@ buttskyle96@gmail.com     {break}
 {phang}
 Gardner (2021), {browse "https://jrgcmu.github.io/2sdd_current.pdf":Two-stage Difference-in-differences}
 {p_end}
-
 
 
 

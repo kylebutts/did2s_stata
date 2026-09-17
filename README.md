@@ -12,11 +12,9 @@ methodology, view this
 
 > [!WARNING]
 >
-> Due to the way Stata handles the `predict` command, users of this
-> package should be careful when they have always-treated units in their
-> data or if all units end up treated before the end of the panel. If
-> any value of `i.unit` or `i.year` are not estimated, then predict will
-> estimate them as 0s which can predict very weird results.
+> If an absorbed fixed-effect level is never observed untreated, its
+> counterfactual is not identified. `did2s` leaves those predictions
+> missing and drops the affected observations with a note.
 
 ## Installation
 
@@ -33,10 +31,12 @@ I have created an Stata package with the help of John Gardner to
 estimate the two-stage procedure. The command is `did2s` which estimates
 the two-stage did procedure. This function requires the following syntax
 
-`did2s depvar [if] [in] [weight], first_stage(varlist) second_stage(varlist) treatment(varname) cluster(varname)`
+`did2s depvar [if] [in] [weight], absorb(varlist) second_stage(varlist) treatment(varname) cluster(varname) [first_stage(varlist)]`
 
-- `first_stage`: formula for first stage, can include fixed effects and
-  covariates, but do not include treatment variable(s)!
+- `absorb`: categorical fixed effects used to estimate counterfactual
+  outcomes
+- `first_stage`: optional first-stage covariates other than the absorbed
+  fixed effects
 - `second_stage`: List of treatment variables. This could be, for
   example a 0/1 treatment dummy, a set of event-study leads/lags, or a
   continuous treatment variable
@@ -49,43 +49,13 @@ To view the documentation, type `help did2s` into the console.
 
 ## Example Usage
 
+
+
 ``` stata
-********************************************************************************
-* Static
-********************************************************************************
 
 use data/df_het.dta
-    
-*-> two-stage manually (note standard errors are off)
 
-* First-stage regression 
-qui reg dep_var i.state i.year if treat == 0
-
-* y_{it} - \hat{y}_{it}(\infty)
-qui predict adj, residuals
-
-* Second-stage regression
-reg adj i.treat, cluster(state) nocons
-Linear regression                               Number of obs     =     31,000
-                                                F(1, 39)          =    2803.10
-                                                Prob > F          =     0.0000
-                                                R-squared         =     0.3776
-                                                Root MSE          =     1.7505
-
-                                 (Std. err. adjusted for 40 clusters in state)
-------------------------------------------------------------------------------
-             |               Robust
-         adj | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
--------------+----------------------------------------------------------------
-     1.treat |   2.380156   .0449558    52.94   0.000     2.289224    2.471087
-------------------------------------------------------------------------------
-```
-
-``` stata
-
-
-*-> With did2s standard error correction    
-did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) treatment(treat) cluster(state)
+did2s dep_var, absorb(state year) second_stage(i.treat) treatment(treat) cluster(state)
                                   (Std. err. adjusted for clustering on state)
 ------------------------------------------------------------------------------
              | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
@@ -105,7 +75,7 @@ You can also do event-study by changing the `second_stage`
 qui gen rel_year_shift = rel_year + 20
 qui replace rel_year_shift = 100 if rel_year_shift == .
 
-did2s dep_var, first_stage(i.state i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)
+did2s dep_var, absorb(state year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(state)
                                     (Std. err. adjusted for clustering on state)
 --------------------------------------------------------------------------------
                | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
@@ -168,10 +138,10 @@ use https://github.com/scunning1975/mixtape/raw/master/castle.dta, clear
 global demo blackm_15_24 whitem_15_24 blackm_25_44 whitem_25_44
 
 * No Covariates
-did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)
+did2s l_homicide [aweight=popwt], absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)
 
 * Covariates
-did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)
+did2s l_homicide [aweight=popwt], first_stage($demo) absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)
                                     (Std. err. adjusted for clustering on sid)
 ------------------------------------------------------------------------------
              | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
@@ -189,61 +159,10 @@ did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i
 
 ### Large Datasets or Many Fixed Effects
 
-There are some situations where standard errors can not be calculate
-analytically in memory. The reason for this is that the analytic
-standard errors require the creation of the matrix containing all the
-fixed effects used in estimation. When there are a lot of observations
-and/or many fixed effects, this matrix can’t be stored in memory.
-
-In this case, it’s possible to obtain standard errors via bootstrapping
-a custom program. Here is an example for the example data. You could
-spend time to make the command more programmable with args, but I find
-it easier to just write the estimation out.
-
-``` stata
-use data/df_het.dta, clear
-
-egen unique_id = group(state unit)
-
-capture program drop did2s_est
-
-program did2s_est, rclass
-    version 13.0
-    regress dep_var i.new_id i.year if treat == 0
-    tempvar dep_var_resid
-    predict `dep_var_resid', residuals
-    regress `dep_var_resid' ib0.treat, nocons
-end
-
-xtset unique_id year
-sort unique_id year
-bootstrap, cluster(state) idcluster(new_id) group(unique_id) reps(100): did2s_est
-Panel variable: unique_id (strongly balanced)
- Time variable: year, 1990 to 2020
-         Delta: 1 unit
-
-
-(running did2s_est on estimation sample)
-
-Bootstrap replications (100): .........10.........20.........30.........40.........50.........60....
-> .....70.........80.........90.........100 done
-
-Linear regression                                      Number of obs =  31,000
-                                                       Replications  =     100
-                                                       Wald chi2(1)  = 1568.60
-                                                       Prob > chi2   =  0.0000
-                                                       R-squared     =  0.3776
-                                                       Adj R-squared =  0.3776
-                                                       Root MSE      =  1.7505
-
-                                  (Replications based on 40 clusters in state)
-------------------------------------------------------------------------------
-             |   Observed   Bootstrap                         Normal-based
-    __000001 | coefficient  std. err.      z    P>|z|     [95% conf. interval]
--------------+----------------------------------------------------------------
-     1.treat |   2.380156   .0600965    39.61   0.000     2.262369    2.497943
-------------------------------------------------------------------------------
-```
+Both first-stage estimation and the corrected variance calculation avoid
+materializing the full fixed-effect dummy matrix. Computational cost therefore
+scales with the observations and absorbed dimensions rather than with the
+square of the number of fixed-effect levels.
 
 ## References
 

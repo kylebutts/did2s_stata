@@ -6,16 +6,7 @@ program define did2s, eclass sortpreserve
   *-> Setup
 
     version 13
-    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], second_stage(varlist fv) TREATment(varname) cluster(varname) [ first_stage(varlist fv) absorb(varlist numeric) unit(varname) TOLerance(real 1e-10) MAXITer(integer 2000) ]
-
-    if ("`absorb'" == "" & "`first_stage'" == "") {
-      display as error "option {bf:first_stage()} required (or use {bf:absorb()})"
-      exit(198)
-    }
-    if ("`absorb'" != "" & "`unit'" != "") {
-      display as error "options {bf:absorb()} and {bf:unit()} may not be combined; put the unit fixed effect in {bf:absorb()}"
-      exit(198)
-    }
+    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], ABSorb(varlist numeric) second_stage(varlist fv) TREATment(varname) cluster(varname) [ first_stage(varlist fv) TOLerance(real 1e-10) MAXITer(integer 2000) ]
     if (`tolerance' <= 0) {
       display as error "option {bf:tolerance()} must be positive"
       exit(198)
@@ -33,7 +24,7 @@ program define did2s, eclass sortpreserve
     capture confirm numeric variable `cluster'
 
     if _rc != 0 { 
-      display as error "cluster variable {bf:`clustervar'} is not a numeric variable."
+      display as error "cluster variable {bf:`cluster'} is not a numeric variable."
       exit(198)
     }
 
@@ -43,11 +34,6 @@ program define did2s, eclass sortpreserve
     else {
       local weightexp "`weight'=`exp'"
     }
-
-  *============================================================================
-  * PATH A: absorb().  Path B below is unchanged.
-  *============================================================================
-  if ("`absorb'" != "") {
 
     capture which reghdfe
     if (_rc != 0) {
@@ -168,7 +154,7 @@ program define did2s, eclass sortpreserve
     quietly predict double `second_u' if `touse', residual
 
     *-> SE correction
-    mata: V = _d2s_hdfe_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
+    mata: V = construct_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
 
     if (scalar(__d2s_rmax) > `tolerance') {
       display as txt "warning: variance-correction solver did not converge (max relative residual "
@@ -204,164 +190,6 @@ program define did2s, eclass sortpreserve
     ereturn display
 
     capture mata: mata drop __D2S
-    exit
-  }
-
-
-  *============================================================================
-  * PATH B: classic (explicit dummies, optional unit() demeaning) -- unchanged
-  *============================================================================
-
-    if("`unit'" != "") {
-      qui preserve
-    }
-
-  *-> First Stage 
-
-    * Using `nocons` and adding a constant manually (for i.state i.year)
-    tempvar ones
-    gen `ones' = 1
-
-    fvrevar `first_stage' if (`touse' == 1) & (`treatment' == 0)
-    local full_first_stage "`r(varlist)' `ones'"
-    
-    * Manually demean all the first_stage vars by id (when treat == 0).
-    * The first stage is estimated by WLS when weights are supplied, so the
-    * demeaning must use the WEIGHTED mean over untreated observations within
-    * unit; otherwise Frisch-Waugh fails and unit() stops reproducing the
-    * equivalent full-dummy specification. Reduces to the simple mean when
-    * weights are absent or constant within unit. (Issue #19)
-    if ("`unit'" != "") {
-      tempvar dmwt mean wsum xsum
-      if ("`weight'" == "") {
-        quietly gen double `dmwt' = 1
-      }
-      else {
-        quietly gen double `dmwt' = `exp'
-      }
-      foreach var of varlist `full_first_stage' `varlist' {
-        cap drop `wsum'
-        cap drop `xsum'
-        cap drop `mean'
-        * weighted mean, ignoring rows where `var' is missing (as egen's
-        * mean() does)
-        quietly egen double `wsum' = total(cond(`touse' & `treatment' == 0 ///
-            & !missing(`var'), `dmwt', .)), by(`unit')
-        quietly egen double `xsum' = total(cond(`touse' & `treatment' == 0, ///
-            `dmwt' * `var', .)), by(`unit')
-        quietly gen double `mean' = `xsum' / `wsum'
-        quietly replace `var' = `var' - `mean'
-      }
-    }
-
-    * First stage regression (with clustering and weights)
-    quietly reg `varlist' `full_first_stage' [`weightexp'] if (`touse' == 1) & (`treatment' == 0), nocons
-
-    
-    * Residualize outcome variable
-    tempvar adj
-    quietly predict double `adj' if `touse', residual
-
-    **-> Get names of non-omitted variables
-      * https://www.stata.com/support/faqs/programming/factor-variable-support/
-      
-      tempname b_first omit
-      matrix `b_first' = e(b)
-      _ms_omit_info `b_first'
-      matrix `omit' = r(omit)
-      local vars_first: colnames e(b)
-      
-      local i = 1
-      local newlist
-      foreach var in `vars_first' {
-        if `omit'[1,`i'] == 0 {
-          if ("`var'" != "_cons") {
-            local newlist "`newlist' `var'"
-          }
-        }
-        local ++i
-      }
-
-      local vars_first "`newlist'"
-      * disp "`vars_first'"
-
-    **-> Create first_u, with 0s in row where D_it = 1
-    tempvar first_u
-    quietly gen `first_u' = `adj' * (1 - `treatment') if `touse'
-
-  *-> Second Stage
-
-    fvrevar `second_stage' if `touse'
-    local full_second_stage `r(varlist)'
-
-    * Second stage regression
-    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons
-
-    **-> Get names of non-omitted variables
-      * https://www.stata.com/support/faqs/programming/factor-variable-support/
-      
-      tempname b_second omit 
-      matrix `b_second' = e(b)
-      _ms_omit_info `b_second'
-      matrix `omit' = r(omit)
-      local vars_second: colnames e(b)
-      
-      local i = 1
-      local newlist
-      foreach var in `vars_second' {
-        if `omit'[1,`i'] == 0 {
-          if ("`var'" != "_cons") {
-            local newlist "`newlist' `var'"
-          }
-        }
-        local ++i
-      }
-      local vars_second "`newlist'"
-      * disp "`vars_second'"
-
-      * get number of 2nd stage variables 
-      local n_non_omit_second: word count `vars_second'
-
-    **-> Create second_u
-    tempvar second_u
-    quietly predict double `second_u' if `touse', residual 
-      
-
-  *-> Standard Error Adjustment
-
-    * Keep only esample for second_stage
-    tempvar touse_x_esample
-    qui gen `touse_x_esample' = (`touse' == 1) & (e(sample) == 1)
-    mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse_x_esample'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
-
-  *-> Export
-
-    * Second stage regression (with pretty display)
-    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
-    tempname b
-    matrix `b' = e(b)
-    local V_names: rownames e(V)
-    local N = e(N)
-
-    * Fill in V for omitted variables
-    tempname V_final
-    mata: st_matrix(st_local("V_final"), construct_V_final(V)) 
-
-    matrix rownames `V_final' = `V_names'
-    matrix colnames `V_final' = `V_names'
-
-    ereturn clear
-    ereturn post `b' `V_final', esample(`touse')
-    ereturn local cmdline `"`0'"'
-    ereturn local cmd "did2s"
-    ereturn local clustvar "`cluster'"
-    ereturn scalar N = `N'
-
-    ereturn display
-
-    if("`unit'" != "") {
-      qui restore
-    }
 end
 
 * Mata Functions
@@ -375,14 +203,13 @@ capture mata mata drop _d2s_XtWv()
 capture mata mata drop _d2s_M0v()
 capture mata mata drop _d2s_pcg()
 capture mata mata drop _d2s_setup()
-capture mata mata drop _d2s_hdfe_V()
 mata: 
 
   struct _d2s_prob {
     real scalar     N, q, D, k1, kfe, rmax
     real colvector  w, w0, treat, first_u, dprec, ends
     real matrix     Q, LEV, P2
-    real rowvector  Ld, has0, eoff, elen, feoff
+    real rowvector  Ld, has0, eoff, elen
   }
 
   /* Group sums of the columns of x, given a sort order p and the group end
@@ -552,7 +379,6 @@ mata:
     s.has0 = J(1, s.D, 0)
     s.eoff = J(1, s.D, 0)
     s.elen = J(1, s.D, 0)
-    s.feoff = J(1, s.D, 0)
     s.ends = J(0, 1, 0)
     s.rmax = 0
 
@@ -584,11 +410,7 @@ mata:
       s.ends = s.ends \ inf[., 2]
     }
 
-    s.feoff[1] = 0
-    for (d = 2; d <= s.D; d++) {
-      s.feoff[d] = s.feoff[d - 1] + s.Ld[d - 1]
-    }
-    s.kfe = s.feoff[s.D] + s.Ld[s.D]
+    s.kfe = sum(s.Ld)
     s.k1  = s.q + s.kfe
 
     /* Jacobi preconditioner: diag(X10' W X10) */
@@ -617,7 +439,7 @@ mata:
        Z = X1 B
        IF_i = [X2_i w_i u2_i - Z_i w_i u1_i] (X2' W X2)^-1
        V = sum_g (sum_{i in g} IF_i)' (sum_{i in g} IF_i)                 */
-  real matrix _d2s_hdfe_V(struct _d2s_prob scalar s, string scalar x2names, string scalar u2name, string scalar clname, string scalar tousename, real scalar tol, real scalar maxiter)
+  real matrix construct_V(struct _d2s_prob scalar s, string scalar x2names, string scalar u2name, string scalar clname, string scalar tousename, real scalar tol, real scalar maxiter)
   {
     real matrix X2, first_stage_rhs, first_stage_coef, first_stage_fitted
     real matrix influence, cluster_influence, info, x2tx2_inv, cov
@@ -657,65 +479,6 @@ mata:
     cov = cross(cluster_influence, cluster_influence)
 
     st_numscalar("__d2s_rmax", s.rmax)
-    return(cov)
-  }
-
-  /* ---- classic path, unchanged ---- */
-
-  matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
-
-    real colvector treat, cluster_var, first_u, second_u, weights, w0, p
-    real matrix X1, X2, first_stage_map, first_stage_score
-    real matrix second_stage_score, influence, cluster_influence, info
-    real matrix x2tx2_inv, cov
-    real scalar G, g
-
-    st_view(treat = ., ., treatment_str, touse_str)
-    st_view(cluster_var = ., ., cluster_str, touse_str)
-    st_view(first_u = ., ., first_u_str, touse_str)
-    st_view(second_u = ., ., second_u_str, touse_str)
-
-    st_view(X1 = ., ., vars_first_str, touse_str)
-    st_view(X2 = ., ., vars_second_str, touse_str)
-
-    if(weights_str != "") {
-      st_view(weights = ., ., weights_str, touse_str)
-    }
-    else {
-      weights = J(rows(X1), 1, 1)
-    }
-
-    /* (X10' W0 X10) is cross(X1, .) with the weight zeroed on treated rows,
-       so no row-selected copy of X1 is needed. */
-    w0 = weights :* (1 :- treat)
-
-    /* Map estimation noise from the untreated first stage into each
-       second-stage coefficient. */
-    first_stage_map = cross(X2, weights, X1) *
-      invsym(cross(X1, w0, X1))
-
-    /* Follow the R implementation directly. The two score terms are N x k2;
-       multiplying their difference by the second-stage bread gives the
-       observation-level influence function with observations in rows. */
-    second_stage_score = X2 :* (weights :* second_u)
-    first_stage_score = (X1 :* (weights :* first_u)) * first_stage_map'
-    x2tx2_inv = invsym(cross(X2, weights, X2))
-    influence = (second_stage_score - first_stage_score) * x2tx2_inv
-
-    /* The cluster-robust covariance is the cross-product of influence
-       functions after summing them within cluster. */
-    p         = order(cluster_var, 1)
-    influence = influence[p, .]
-    info = panelsetup(cluster_var[p], 1)
-    G    = rows(info)
-
-    cluster_influence = J(G, k2, 0)
-    for(g = 1; g <= G; g++) {
-      cluster_influence[g, .] = colsum(panelsubmatrix(influence, g, info))
-    }
-
-    cov = cross(cluster_influence, cluster_influence)
-
     return(cov)
   }
 

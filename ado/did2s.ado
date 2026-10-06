@@ -133,7 +133,7 @@ program define did2s, eclass sortpreserve
 
     *-> Second Stage
     quietly reg `adj' `second_stage' `weightexp' if `touse', ///
-      nocons depname(`varlist')
+      nocons
 
       tempname b_second omit
       matrix `b_second' = e(b)

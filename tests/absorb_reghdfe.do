@@ -54,7 +54,8 @@ quietly did2s dep_var [aw=wt], first_stage(x) absorb(unit year) ///
     second_stage(i.treat) treatment(treat) cluster(state)
 assert e(N) == _N
 matrix V = e(V)
-assert mreldif(V, V') < 1e-12
+matrix V_transpose = V'
+assert mreldif(V, V_transpose) < 1e-12
 
 * if restrictions flow through both stages and e(sample).
 quietly count if mod(unit, 3)

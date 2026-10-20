@@ -1,4 +1,4 @@
-*! tolerance_sweep.do -- rev 3
+*! tolerance_sweep.do -- rev 4 (classic = frozen v0.6 reference, tests/reference/did2s_ref.ado)
 *! four-column output (b/V vs classic AND vs absorb 1e-14); section 4 measures the cost of the tighter default
 *! Expects did2s.ado v0.7 with default tolerance(1e-12) maxiter(2000).
 
@@ -41,7 +41,11 @@ display as txt "{hline 84}"
 
 clear all
 set more off
-run "did2s.ado"
+capture confirm file "ado/did2s.ado"
+if (_rc == 0) global ROOT "."
+else global ROOT ".."
+run "$ROOT/ado/did2s.ado"
+run "$ROOT/tests/reference/did2s_ref.ado"
 
 capture mata mata drop _d2s_sweep()
 mata:
@@ -67,8 +71,8 @@ program define tolsweep
     matrix b_ref = e(b)
     matrix V_ref = e(V)
 
-    * the classic path, which has no tolerance to set
-    capture qui did2s $SPEC_CLASSIC
+    * the classic path (v0.6 explicit dummies), which has no tolerance to set
+    capture qui did2s_ref $SPEC_CLASSIC
     if (_rc != 0) {
         display as error "    classic path errored, rc = " _rc
         exit

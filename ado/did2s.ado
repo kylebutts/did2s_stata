@@ -1,4 +1,4 @@
-*! version 0.7  absorb(): first stage with absorbed fixed effects
+*! version 0.7  first stage solved by preconditioned conjugate gradients
 
 * Main function
 capture program drop did2s
@@ -6,14 +6,25 @@ program define did2s, eclass
   *-> Setup
 
     version 13
-    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], second_stage(varlist fv) TREATment(varname) cluster(varname) [ first_stage(varlist fv) absorb(varlist numeric) unit(varname) TOLerance(real 1e-12) MAXITer(integer 2000) KEEPNOid ]
+    syntax varlist(min=1 max=1 numeric) [if] [in] [aw fw iw pw /], second_stage(varlist fv) TREATment(varname) cluster(varname) [ first_stage(varlist fv) ABSorb(varlist numeric) unit(varname) TOLerance(real 1e-12) MAXITer(integer 2000) ]
 
-    if ("`absorb'" == "" & "`first_stage'" == "") {
-      display as error "option {bf:first_stage()} required (or use {bf:absorb()})"
+    if ("`first_stage'" == "" & "`absorb'" == "" & "`unit'" == "") {
+      display as error "one of {bf:first_stage()} or {bf:absorb()} is required"
       exit(198)
     }
-    if ("`absorb'" != "" & "`unit'" != "") {
-      display as error "options {bf:absorb()} and {bf:unit()} may not be combined; put the unit fixed effect in {bf:absorb()}"
+    if (`tolerance' <= 0) {
+      display as error "option {bf:tolerance()} must be positive"
+      exit(198)
+    }
+    if (`maxiter' <= 0) {
+      display as error "option {bf:maxiter()} must be a positive integer"
+      exit(198)
+    }
+
+    * confirm cluster is a numeric variable
+    capture confirm numeric variable `cluster'
+    if (_rc != 0) {
+      display as error "cluster variable {bf:`cluster'} is not a numeric variable."
       exit(198)
     }
 
@@ -21,100 +32,135 @@ program define did2s, eclass
     tempvar touse
     mark `touse' `if' `in'
 
-    * confirm cluster is a numeric variable
-    capture confirm numeric variable `cluster'
-
-    if _rc != 0 { 
-      display as error "cluster variable {bf:`clustervar'} is not a numeric variable."
-      exit(198)
-    }
-
-    if("`weight'" == "") {
-      local weightexp = ""
-    } 
-    else {
-      local weightexp "`weight'=`exp'"
-    }
-
-  *============================================================================
-  * PATH A: absorb().  Path B below is unchanged.
-  *============================================================================
-  if ("`absorb'" != "") {
-
-    * Mata reads the weight with st_data(), which requires a variable name,
-    * so an expression such as [aw = pop*2] must be materialized first.
+    * Mata reads the weight with st_data(), which requires a variable name, so
+    * the weight expression is materialized once and used everywhere.
     if ("`weight'" != "") {
       tempvar wvar
-      qui gen double `wvar' = `exp'
+      qui gen double `wvar' = `exp' if `touse'
+      local weightexp "`weight'=`wvar'"
     }
     else {
-      local wvar = ""
+      local wvar ""
+      local weightexp ""
     }
 
-    markout `touse' `varlist' `treatment' `cluster' `absorb'
-    if ("`wvar'" != "") markout `touse' `wvar'
+  *-> Fixed effects to absorb
+    * Every first-stage fixed effect is absorbed rather than entered as dummies.
+    * Plain factor main effects in first_stage() (i.x, ib#.x, ibn.x, ...) are
+    * moved to the absorbed list, and unit(x) is the same as absorb(x). All
+    * other first-stage terms -- continuous covariates, interactions, slopes,
+    * level-restricted factors such as i(1/3).x -- stay as regressors.
+    local fe_vars "`absorb'"
+    local fe_show "`absorb'"
+    local fs_rest ""
     if ("`first_stage'" != "") {
-      fvrevar `first_stage', list
+      fvunab fs_terms : `first_stage'
+      local rest `"`fs_terms'"'
+      while (`"`rest'"' != "") {
+        gettoken term rest : rest, bind
+        if (`"`term'"' == "") continue
+        local route = 0
+        local dot = strpos(`"`term'"', ".")
+        if (`dot' > 1) {
+          local pre = substr(`"`term'"', 1, `dot' - 1)
+          local nm  = substr(`"`term'"', `dot' + 1, .)
+          if ((`"`pre'"' == "i" | substr(`"`pre'"', 1, 2) == "ib") & strpos(`"`nm'"', ".") == 0 & strpos(`"`nm'"', "#") == 0) {
+            capture confirm numeric variable `nm', exact
+            if (_rc == 0) local route = 1
+          }
+        }
+        if (`route') {
+          local fe_vars "`fe_vars' `nm'"
+          local fe_show "`fe_show' `nm'"
+        }
+        else {
+          local fs_rest `"`fs_rest' `term'"'
+        }
+      }
+      local fs_rest : list retokenize fs_rest
+    }
+    if ("`unit'" != "") {
+      capture confirm numeric variable `unit'
+      if (_rc != 0) {
+        tempvar unitid
+        qui egen long `unitid' = group(`unit') if `touse'
+        local fe_vars "`fe_vars' `unitid'"
+      }
+      else {
+        local fe_vars "`fe_vars' `unit'"
+      }
+      local fe_show "`fe_show' `unit'"
+    }
+    local fe_vars : list uniq fe_vars
+    local fe_show : list uniq fe_show
+
+    * With no fixed effect at all, absorb a constant, as the dummy first stage
+    * of earlier versions always included one.
+    if ("`fe_vars'" == "") {
+      tempvar cons
+      qui gen byte `cons' = 1
+      local fe_vars "`cons'"
+    }
+
+  *-> Estimation sample
+    markout `touse' `varlist' `treatment' `cluster' `fe_vars' `wvar'
+    if (`"`fs_rest'"' != "") {
+      fvrevar `fs_rest', list
       markout `touse' `r(varlist)'
     }
     fvrevar `second_stage', list
     markout `touse' `r(varlist)'
 
-    *-> Identification screen: FE levels with no untreated support.
-    * One pass suffices. Every row flagged here has zero untreated weight (it
-    * is treated, or untreated with non-positive weight), and a level is kept
-    * iff it contains at least one untreated row with positive weight, so
-    * removing flagged rows leaves every other level's untreated support --- in
-    * every dimension --- exactly as it was. There is nothing for a second pass
-    * to find.
-    tempvar noid
-    qui gen byte `noid' = 0
-    mata: st_numscalar("__d2s_nid", _d2s_flag_nosupp("`absorb'", "`treatment'", "`touse'", "`wvar'", "`noid'"))
-
-    local ndrop = 0
-    if (scalar(__d2s_nid) > 0 & "`keepnoid'" == "") {
-      local ndrop = scalar(__d2s_nid)
-      qui replace `touse' = 0 if `noid'
+    capture assert inlist(`treatment', 0, 1) if `touse'
+    if (_rc != 0) {
+      display as error "treatment variable {bf:`treatment'} must be 0/1"
+      exit(450)
     }
-
-    if (`ndrop' > 0) {
-      display as txt "note: `ndrop' observation(s) dropped: their fixed-effect level had no untreated"
-      display as txt "      observations, so the first-stage counterfactual is not identified there."
-      display as txt "      (Option {bf:keepnoid} keeps them; the estimate is then normalization-dependent.)"
-    }
-    if (scalar(__d2s_nid) > 0 & "`keepnoid'" != "") {
-      display as txt "warning: " scalar(__d2s_nid) " observation(s) have a fixed-effect level with no untreated"
-      display as txt "         observations. {bf:keepnoid} keeps them, which sets those levels' effects to"
-      display as txt "         zero. Point estimates are normalization-dependent and do NOT match the"
-      display as txt "         equivalent {bf:first_stage()} specification. The variance calculation is"
-      display as txt "         inconsistent under this option: DO NOT REPORT THESE STANDARD ERRORS."
-    }
-    capture scalar drop __d2s_nid
 
     qui count if `touse'
-    if (r(N) == 0) {
-      display as error "no observations left after the identification screen"
-      exit(2000)
-    }
+    if (r(N) == 0) error 2000
 
     local Qvars ""
-    if ("`first_stage'" != "") {
-      fvrevar `first_stage' if `touse'
+    if (`"`fs_rest'"' != "") {
+      fvrevar `fs_rest' if `touse'
       local Qvars "`r(varlist)'"
     }
 
+  *-> First Stage
+    * _d2s_setup() also screens the sample: observations in a fixed-effect
+    * level with no untreated observations have no identified counterfactual,
+    * and are flagged in `noid' and dropped. Dropping them leaves every other
+    * level's untreated support unchanged, so one pass suffices.
+    tempvar adj noid
+    qui gen double `adj' = .
+    qui gen byte `noid' = 0
+    capture mata: mata drop __D2S
+    mata: __D2S = _d2s_setup("`varlist'", "`Qvars'", "`fe_vars'", "`treatment'", "`touse'", "`wvar'", `tolerance', `maxiter', "`adj'", "`noid'")
+
+    qui count if `touse' & `noid'
+    local ndrop = r(N)
+    if (`ndrop' > 0) {
+      qui replace `touse' = 0 if `noid'
+      display as txt "note: `ndrop' observation(s) dropped: they belong to a fixed-effect level with no"
+      display as txt "      untreated observations, so their counterfactual Y(0) is not identified."
+    }
+
+    qui count if `touse'
+    if (r(N) == 0) {
+      capture mata: mata drop __D2S
+      capture scalar drop __d2s_rmax
+      display as error "no observations left: no fixed-effect level has untreated observations"
+      exit(2000)
+    }
+
+  *-> Second Stage
     fvrevar `second_stage' if `touse'
     local full_second_stage `r(varlist)'
 
-    *-> Stage 1
-    tempvar adj
-    qui gen double `adj' = .
-    capture mata: mata drop __D2S
-    mata: __D2S = _d2s_setup("`varlist'", "`Qvars'", "`absorb'", "`treatment'", "`touse'", "`wvar'", `tolerance', `maxiter', "`adj'")
-
-    *-> Second Stage
     quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons
 
+      **-> Get names of non-omitted variables
+      * https://www.stata.com/support/faqs/programming/factor-variable-support/
       tempname b_second omit
       matrix `b_second' = e(b)
       _ms_omit_info `b_second'
@@ -134,26 +180,31 @@ program define did2s, eclass
     tempvar second_u
     quietly predict double `second_u' if `touse', residual
 
-    *-> SE correction
+  *-> Standard Error Adjustment
     mata: V = _d2s_hdfe_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
+    capture mata: mata drop __D2S
 
     if (scalar(__d2s_rmax) > `tolerance') {
       display as txt "warning: first-stage solver did not converge (max relative residual "
       display as txt "         " %8.1e scalar(__d2s_rmax) ", tolerance `tolerance')."
-      display as txt "         This usually means the first-stage system is inconsistent, i.e. some"
-      display as txt "         observations' fixed effects are not identified from untreated data."
+      display as txt "         This usually means some treated observation's counterfactual is not"
+      display as txt "         identified from the untreated data, e.g. a first-stage covariate"
+      display as txt "         that does not vary among untreated observations, or fixed effects"
+      display as txt "         whose untreated observations fall into disconnected groups."
       display as txt "         DO NOT report these standard errors. Try {bf:maxiter()}, a coarser"
-      display as txt "         fixed-effect specification, or a cluster bootstrap."
+      display as txt "         first-stage specification, or a cluster bootstrap."
     }
     capture scalar drop __d2s_rmax
 
-    *-> Export
+  *-> Export
+    * Second stage regression (with pretty display)
     quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
     tempname b
     matrix `b' = e(b)
     local V_names: rownames e(V)
     local N = e(N)
 
+    * Fill in V for omitted variables
     tempname V_final
     mata: st_matrix(st_local("V_final"), construct_V_final(V))
 
@@ -165,179 +216,19 @@ program define did2s, eclass
     ereturn local cmdline `"`0'"'
     ereturn local cmd "did2s"
     ereturn local clustvar "`cluster'"
-    ereturn local absorb "`absorb'"
+    ereturn local absorb "`fe_show'"
     ereturn scalar N = `N'
+    ereturn scalar N_noid = `ndrop'
 
     ereturn display
-
-    capture mata: mata drop __D2S
-    exit
-  }
-
-
-  *============================================================================
-  * PATH B: classic (explicit dummies, optional unit() demeaning) -- unchanged
-  *============================================================================
-
-    if("`unit'" != "") {
-      qui preserve
-    }
-
-  *-> First Stage 
-
-    * Using `nocons` and adding a constant manually (for i.state i.year)
-    tempvar ones
-    gen `ones' = 1
-
-    fvrevar `first_stage' if (`touse' == 1) & (`treatment' == 0)
-    local full_first_stage "`r(varlist)' `ones'"
-    
-    * Manually demean all the first_stage vars by id (when treat == 0).
-    * The first stage is estimated by WLS when weights are supplied, so the
-    * demeaning must use the WEIGHTED mean over untreated observations within
-    * unit; otherwise Frisch-Waugh fails and unit() stops reproducing the
-    * equivalent full-dummy specification. Reduces to the simple mean when
-    * weights are absent or constant within unit. (Issue #19)
-    if ("`unit'" != "") {
-      tempvar dmwt mean wsum xsum
-      if ("`weight'" == "") {
-        quietly gen double `dmwt' = 1
-      }
-      else {
-        quietly gen double `dmwt' = `exp'
-      }
-      foreach var of varlist `full_first_stage' `varlist' {
-        cap drop `wsum'
-        cap drop `xsum'
-        cap drop `mean'
-        * weighted mean, ignoring rows where `var' is missing (as egen's
-        * mean() does)
-        quietly egen double `wsum' = total(cond(`touse' & `treatment' == 0 ///
-            & !missing(`var'), `dmwt', .)), by(`unit')
-        quietly egen double `xsum' = total(cond(`touse' & `treatment' == 0, ///
-            `dmwt' * `var', .)), by(`unit')
-        quietly gen double `mean' = `xsum' / `wsum'
-        quietly replace `var' = `var' - `mean'
-      }
-    }
-
-    * First stage regression (with clustering and weights)
-    quietly reg `varlist' `full_first_stage' [`weightexp'] if (`touse' == 1) & (`treatment' == 0), nocons
-
-    
-    * Residualize outcome variable
-    tempvar adj
-    quietly predict double `adj' if `touse', residual
-
-    **-> Get names of non-omitted variables
-      * https://www.stata.com/support/faqs/programming/factor-variable-support/
-      
-      tempname b_first omit
-      matrix `b_first' = e(b)
-      _ms_omit_info `b_first'
-      matrix `omit' = r(omit)
-      local vars_first: colnames e(b)
-      
-      local i = 1
-      local newlist
-      foreach var in `vars_first' {
-        if `omit'[1,`i'] == 0 {
-          if ("`var'" != "_cons") {
-            local newlist "`newlist' `var'"
-          }
-        }
-        local ++i
-      }
-
-      local vars_first "`newlist'"
-      * disp "`vars_first'"
-
-    **-> Create first_u, with 0s in row where D_it = 1
-    tempvar first_u
-    quietly gen `first_u' = `adj' * (1 - `treatment') if `touse'
-
-  *-> Second Stage
-
-    fvrevar `second_stage' if `touse'
-    local full_second_stage `r(varlist)'
-
-    * Second stage regression
-    quietly reg `adj' `full_second_stage' [`weightexp'] if `touse', nocons
-
-    **-> Get names of non-omitted variables
-      * https://www.stata.com/support/faqs/programming/factor-variable-support/
-      
-      tempname b_second omit 
-      matrix `b_second' = e(b)
-      _ms_omit_info `b_second'
-      matrix `omit' = r(omit)
-      local vars_second: colnames e(b)
-      
-      local i = 1
-      local newlist
-      foreach var in `vars_second' {
-        if `omit'[1,`i'] == 0 {
-          if ("`var'" != "_cons") {
-            local newlist "`newlist' `var'"
-          }
-        }
-        local ++i
-      }
-      local vars_second "`newlist'"
-      * disp "`vars_second'"
-
-      * get number of 2nd stage variables 
-      local n_non_omit_second: word count `vars_second'
-
-    **-> Create second_u
-    tempvar second_u
-    quietly predict double `second_u' if `touse', residual 
-      
-
-  *-> Standard Error Adjustment
-
-    * Keep only esample for second_stage
-    tempvar touse_x_esample
-    qui gen `touse_x_esample' = (`touse' == 1) & (e(sample) == 1)
-    mata: V = construct_V("`treatment'", "`cluster'", "`first_u'", "`second_u'", "`touse_x_esample'", "`vars_first'", "`vars_second'", "`exp'", `n_non_omit_second')
-
-  *-> Export
-
-    * Second stage regression (with pretty display)
-    quietly reg `adj' `second_stage' [`weightexp'] if `touse', nocons robust depname(`varlist')
-    tempname b
-    matrix `b' = e(b)
-    local V_names: rownames e(V)
-    local N = e(N)
-
-    * Fill in V for omitted variables
-    tempname V_final
-    mata: st_matrix(st_local("V_final"), construct_V_final(V)) 
-
-    matrix rownames `V_final' = `V_names'
-    matrix colnames `V_final' = `V_names'
-
-    ereturn clear
-    ereturn post `b' `V_final', esample(`touse')
-    ereturn local cmdline `"`0'"'
-    ereturn local cmd "did2s"
-    ereturn local clustvar "`cluster'"
-    ereturn scalar N = `N'
-
-    ereturn display
-
-    if("`unit'" != "") {
-      qui restore
-    }
 end
 
 * Mata Functions
 version 13
-capture mata mata drop construct_V()
 capture mata mata drop construct_V_final()
 capture mata mata drop _d2s_prob()
 capture mata mata drop _d2s_grpsum()
-capture mata mata drop _d2s_flag_nosupp()
+capture mata mata drop _d2s_lev_vec()
 capture mata mata drop _d2s_Xv()
 capture mata mata drop _d2s_XtWv()
 capture mata mata drop _d2s_M0v()
@@ -373,49 +264,6 @@ mata:
       }
     }
     return(out)
-  }
-
-  /* Flag observations whose fixed-effect level has no untreated support in
-     some dimension. Returns the count. */
-  real scalar _d2s_flag_nosupp(string scalar fenames, string scalar treatname, string scalar tousename, string scalar wname, string scalar flagname)
-  {
-    string rowvector fes
-    real colvector f, p, w, w0, treat, sw0g, supp, bad
-    real matrix inf
-    real scalar d, D, N, g, Lall
-
-    fes = tokens(fenames)
-    D = cols(fes)
-    treat = st_data(., treatname, tousename)
-    N = rows(treat)
-    if (wname != "") {
-      w = st_data(., wname, tousename)
-    }
-    else {
-      w = J(N, 1, 1)
-    }
-    /* Support indicator: untreated AND positively weighted. Counting rows
-       rather than summing weights avoids assuming weights are non-negative,
-       which iweights do not guarantee. Identical to sum(w0) > 0 whenever
-       they are. */
-    w0 = (treat :== 0) :* (w :> 0)
-    bad = J(N, 1, 0)
-
-    for (d = 1; d <= D; d++) {
-      f = st_data(., fes[d], tousename)
-      p = order(f, 1)
-      inf = panelsetup(f[p], 1)
-      Lall = rows(inf)
-      sw0g = _d2s_grpsum(w0, p, inf[., 2])
-      supp = sw0g :> 0
-      for (g = 1; g <= Lall; g++) {
-        if (supp[g] == 0) {
-          bad[p[|inf[g, 1] \ inf[g, 2]|]] = J(inf[g, 2] - inf[g, 1] + 1, 1, 1)
-        }
-      }
-    }
-    st_store(., flagname, tousename, bad)
-    return(sum(bad))
   }
 
   /* X1 * v */
@@ -523,27 +371,101 @@ mata:
     return(B)
   }
 
-  struct _d2s_prob scalar _d2s_setup(string scalar yname, string scalar qnames, string scalar fenames, string scalar treatname, string scalar tousename, string scalar wname, real scalar tol, real scalar maxiter, string scalar adjname)
+  /* Level index for one FE: 1..L for levels with untreated support, 0
+     otherwise. p2 receives a permutation sorted by that index (unsupported
+     rows first), built by a stable partition of a single sort. */
+  real colvector _d2s_lev_vec(real colvector f, real colvector s0, real colvector p2)
+  {
+    real colvector p, fp, newg, gidrow, ends, cs, sw, supp, gid, lev, z
+    real scalar n, Lall, L
+
+    n = rows(f)
+    p = order(f, 1)
+    fp = f[p]
+    if (n > 1) newg = 1 \ (fp[|2 \ n|] :!= fp[|1 \ n - 1|])
+    else       newg = 1
+    gidrow = runningsum(newg)
+    Lall = gidrow[n]
+    if (n > 1) ends = selectindex(newg[|2 \ n|] \ 1)
+    else       ends = 1
+    cs = quadrunningsum(s0[p])
+    if (Lall == 1) sw = cs[ends]
+    else           sw = cs[ends] - (0 \ cs[ends[|1 \ Lall - 1|]])
+    supp = sw :> 0
+    L = sum(supp)
+    gid = J(Lall, 1, 0)
+    if (L > 0) gid[selectindex(supp)] = (1::L)
+    lev = J(n, 1, 0)
+    lev[p] = gid[gidrow, 1]
+    z = (lev[p] :== 0)
+    p2 = select(p, z) \ select(p, !z)
+    return(lev)
+  }
+
+  struct _d2s_prob scalar _d2s_setup(string scalar yname, string scalar qnames, string scalar fenames, string scalar treatname, string scalar tousename, string scalar wname, real scalar tol, real scalar maxiter, string scalar adjname, string scalar flagname)
   {
     struct _d2s_prob scalar s
     string rowvector fes
-    real colvector f, p, s0, sw0g, supp, gid, lev, c1, beta, u, ends, gg, dq
-    real matrix inf
-    real scalar d, g, Lall, L
+    real colvector treat, w, s0, keep, kidx, map, lev, p, c1, beta, u, ends, gg, dq, adjout, y
+    real matrix LV, PP, inf, Q
+    real scalar d, n0
 
-    s.y = st_data(., yname, tousename)
-    s.N = rows(s.y)
-    s.treat = st_data(., treatname, tousename)
+    treat = st_data(., treatname, tousename)
+    n0 = rows(treat)
     if (wname != "") {
-      s.w = st_data(., wname, tousename)
+      w = st_data(., wname, tousename)
     }
     else {
-      s.w = J(s.N, 1, 1)
+      w = J(n0, 1, 1)
     }
+    /* Support indicator: untreated AND positively weighted. Counting rows
+       rather than summing weights avoids assuming non-negative weights. */
+    s0 = (treat :== 0) :* (w :> 0)
+
+    /* Level indexes, one sort per FE, on the full estimation sample */
+    fes = tokens(fenames)
+    s.D = cols(fes)
+    LV = J(n0, s.D, .)
+    PP = J(n0, s.D, .)
+    for (d = 1; d <= s.D; d++) {
+      lev = _d2s_lev_vec(st_data(., fes[d], tousename), s0, p)
+      if (max(lev) == 0) {
+        _error(2000, "did2s: a fixed effect has no levels with untreated observations")
+      }
+      LV[., d] = lev
+      PP[., d] = p
+    }
+
+    /* Identification screen: a row is identified iff its level has untreated
+       support in every FE. Untreated rows with positive weight always are, so
+       every supported level keeps its rows and its index. */
+    keep = (rowmin(LV) :> 0)
+    st_store(., flagname, tousename, !keep)
+    kidx = selectindex(keep)
+    if (rows(kidx) == 0) {
+      _error(2000, "did2s: no observations have identified first-stage predictions")
+    }
+    if (rows(kidx) < n0) {
+      map = runningsum(keep)
+      LV = LV[kidx, .]
+      for (d = 1; d <= s.D; d++) {
+        p = PP[., d]
+        p = select(p, keep[p])
+        PP[|1, d \ rows(kidx), d|] = map[p]
+      }
+      PP = PP[|1, 1 \ rows(kidx), s.D|]
+    }
+
+    y = st_data(., yname, tousename)
+    s.y = y[kidx]
+    s.N = rows(kidx)
+    s.treat = treat[kidx]
+    s.w = w[kidx]
     s.w0 = s.w :* (1 :- s.treat)
 
     if (qnames != "") {
-      s.Q = st_data(., tokens(qnames), tousename)
+      Q = st_data(., tokens(qnames), tousename)
+      s.Q = Q[kidx, .]
       s.q = cols(s.Q)
     }
     else {
@@ -551,12 +473,6 @@ mata:
       s.q = 0
     }
 
-    /* Support indicator, matching _d2s_flag_nosupp(). s.w0 remains the
-       actual weight vector used in the normal equations. */
-    s0 = (s.treat :== 0) :* (s.w :> 0)
-
-    fes = tokens(fenames)
-    s.D = cols(fes)
     s.LEV  = J(s.N, s.D, .)
     s.P2   = J(s.N, s.D, .)
     s.Ld   = J(1, s.D, 0)
@@ -568,25 +484,10 @@ mata:
     s.rmax = 0
 
     for (d = 1; d <= s.D; d++) {
-      f = st_data(., fes[d], tousename)
-      p = order(f, 1)
-      inf = panelsetup(f[p], 1)
-      Lall = rows(inf)
-      sw0g = _d2s_grpsum(s0, p, inf[., 2])
-      supp = sw0g :> 0
-      L = sum(supp)
-      if (L == 0) {
-        _error("did2s: a fixed effect has no levels with untreated observations")
-      }
-      gid = J(Lall, 1, 0)
-      gid[selectindex(supp)] = (1::L)
-      lev = J(s.N, 1, 0)
-      for (g = 1; g <= Lall; g++) {
-        lev[p[|inf[g, 1] \ inf[g, 2]|]] = J(inf[g, 2] - inf[g, 1] + 1, 1, gid[g])
-      }
-      s.Ld[d] = L
-      s.LEV[., d] = lev + (lev :== 0) :* (L + 1)
-      p = order(lev, 1)
+      lev = LV[., d]
+      p = PP[., d]
+      s.Ld[d] = max(lev)
+      s.LEV[., d] = lev + (lev :== 0) :* (s.Ld[d] + 1)
       s.P2[., d] = p
       inf = panelsetup(lev[p], 1)
       s.has0[d] = (lev[p[1]] == 0)
@@ -624,14 +525,16 @@ mata:
     s.beta1 = beta
 
     u = s.y - _d2s_Xv(s, beta)
-    st_store(., adjname, tousename, u)
+    adjout = J(n0, 1, .)
+    adjout[kidx] = u
+    st_store(., adjname, tousename, adjout)
     s.first_u = u :* (1 :- s.treat)
 
     st_numscalar("__d2s_rmax", s.rmax)
     return(s)
   }
 
-  /* Corrected VCV: the construct_V() formula with (X10'WX10)^- applied
+  /* Corrected VCV: Gardner's variance formula with (X10'WX10)^- applied
      iteratively.
        B = (X10'WX10)^- X1'W X2 ; Z = X1 B
        S = X2 .* (w u2) - Z .* (w u1)
@@ -667,63 +570,6 @@ mata:
 
     st_numscalar("__d2s_rmax", s.rmax)
     return(bread * meat * bread)
-  }
-
-  /* ---- classic path, unchanged ---- */
-
-  matrix construct_V(string scalar treatment_str, string scalar cluster_str, string scalar first_u_str, string scalar second_u_str, string scalar touse_str, string scalar vars_first_str, string scalar vars_second_str, string scalar weights_str, real scalar k2) {
-
-    real colvector treat, cluster_var, first_u, second_u, weights, w0, p
-    real matrix X1, X2, V, S, A, info, meat, cov, invX2X2
-    real scalar G, g
-
-    st_view(treat = ., ., treatment_str, touse_str)
-    st_view(cluster_var = ., ., cluster_str, touse_str)
-    st_view(first_u = ., ., first_u_str, touse_str)
-    st_view(second_u = ., ., second_u_str, touse_str)
-
-    st_view(X1 = ., ., vars_first_str, touse_str)
-    st_view(X2 = ., ., vars_second_str, touse_str)
-
-    if(weights_str != "") {
-      st_view(weights = ., ., weights_str, touse_str)
-    }
-    else {
-      weights = J(rows(X1), 1, 1)
-    }
-
-    /* (X10' W0 X10) is cross(X1, .) with the weight zeroed on treated rows,
-       so no row-selected copy of X1 is needed. */
-    w0 = weights :* (1 :- treat)
-
-    /* Only calculate this part once */
-    V = cross(X2, weights, X1) * invsym(cross(X1, w0, X1))
-
-    /* Observation-level scores (N x k2):
-         s_i = w_i X2_i u2_i - V w_i X1_i u1_i
-       first_u is already zero on treated rows, so restricting the second
-       term to untreated rows is automatic. Summing s_i within a cluster
-       reproduces the W vector of the original loop exactly. */
-    S = (X2 :* (weights :* second_u)) - (X1 :* (weights :* first_u)) * V'
-
-    /* Sum scores within cluster: sort once, then one pass over the panels,
-       instead of scanning all N rows once per cluster. */
-    p    = order(cluster_var, 1)
-    S    = S[p, .]
-    info = panelsetup(cluster_var[p], 1)
-    G    = rows(info)
-
-    A = J(G, k2, 0)
-    for(g = 1; g <= G; g++) {
-      A[g, .] = colsum(panelsubmatrix(S, g, info))
-    }
-
-    meat = cross(A, A)
-
-    invX2X2 = invsym(cross(X2, weights, X2))
-    cov = invX2X2 * meat * invX2X2
-
-    return(cov)
   }
 
   matrix construct_V_final(numeric matrix V_adj){

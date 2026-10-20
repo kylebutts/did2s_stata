@@ -1,9 +1,9 @@
-*! validate_real_data.do -- rev 3
-*! split PASS thresholds (b < 1e-8, V < 1e-6); castle URL from did2s help examples
+*! validate_real_data.do -- rev 4
+*! v0.7 vs the frozen v0.6 reference (tests/reference/did2s_ref.ado), same command on both
 *! Expects did2s.ado v0.7 with default tolerance(1e-12) maxiter(2000).
 
 *------------------------------------------------------------------------------
-* did2s absorb(): VALIDATION ON REAL DATA
+* did2s v0.7: VALIDATION ON REAL DATA
 *
 * Simulated panels are balanced, complete, integer-keyed and evenly weighted.
 * Real panels are none of those things, and that is what breaks code. These
@@ -11,22 +11,29 @@
 * gappy time variables, skewed population weights, missing outcomes, units
 * observed only once, and fixed-effect levels with no untreated support.
 *
+* Each specification is run through v0.6 (explicit dummies) and v0.7 (absorbed
+* by conjugate gradients) with the same first_stage() command.
+*
 * Note: the point is NUMERICAL agreement between the two algorithms, not the
 * credibility of any research design. Dataset 3 in particular uses a
 * constructed treatment; it is a stress test, not an estimate of anything.
 *
-* SETUP: did2s.ado in the working directory; internet access for datasets 2
-* and 3. Dataset 1 ships with the R package (data-raw/castle.dta) and is also
+* SETUP: run from the repository root or tests/; internet access for datasets
+* 1 and 2 unless castle.dta is in the working directory. Dataset 1 ships with the R package (data-raw/castle.dta) and is also
 * on the Mixtape Sessions repo.
 *------------------------------------------------------------------------------
 
 display as txt _n "{hline 84}"
-display as txt "validate_real_data.do  [rev 3]"
+display as txt "validate_real_data.do  [rev 4]"
 display as txt "{hline 84}"
 
 clear all
 set more off
-run "did2s.ado"
+capture confirm file "ado/did2s.ado"
+if (_rc == 0) global ROOT "."
+else global ROOT ".."
+run "$ROOT/ado/did2s.ado"
+run "$ROOT/tests/reference/did2s_ref.ado"
 
 capture mata mata drop _d2s_rrep()
 mata:
@@ -51,10 +58,10 @@ program define cmpreal
     args lbl
     timer clear 1
     timer on 1
-    capture qui did2s $SPEC_CLASSIC
+    capture qui did2s_ref $SPEC
     timer off 1
     if (_rc != 0) {
-        display as error "  `lbl'  CLASSIC errored, rc = " _rc
+        display as error "  `lbl'  v0.6 errored, rc = " _rc
         exit
     }
     qui timer list 1
@@ -65,10 +72,10 @@ program define cmpreal
 
     timer clear 2
     timer on 2
-    capture qui did2s $SPEC_ABSORB
+    capture qui did2s $SPEC
     timer off 2
     if (_rc != 0) {
-        display as error "  `lbl'  ABSORB errored, rc = " _rc
+        display as error "  `lbl'  v0.7 errored, rc = " _rc
         exit
     }
     qui timer list 2
@@ -81,7 +88,7 @@ program define cmpreal
     matrix D_b = b_a - e(b)
     matrix D_V = V_a - e(V)
     mata: _d2s_rrep(st_local("lbl"))
-    display as txt "      classic " as res %8.2f `t_c' as txt "s   absorb " ///
+    display as txt "      v0.6 " as res %8.2f `t_c' as txt "s   v0.7 " ///
         as res %8.2f `t_b' as txt "s   N = `N_a'"
 end
 
@@ -98,7 +105,7 @@ end
 * unit() demeaning bug, so it is the natural weighted test case. It is also
 * small enough to cross-check against the R implementation line by line.
 *
-* Watch out: `state' is a STRING here. Use `sid' for absorb() and cluster().
+* Watch out: `state' is a STRING here. Use `sid' for i.sid and cluster().
 *==============================================================================
 display as txt _n "{hline 84}"
 display as txt "1. CASTLE DOCTRINE (Cheng & Hoekstra 2013) -- 550 obs, 50 states"
@@ -120,18 +127,15 @@ else {
         qui replace rel = 100 if missing(time_til)
     }
 
-    global SPEC_CLASSIC "l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)"
-    global SPEC_ABSORB  "l_homicide, absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)"
+    global SPEC "l_homicide, first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)"
     cmpreal "1a static, unweighted"
 
-    global SPEC_CLASSIC "l_homicide [aw = popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)"
-    global SPEC_ABSORB  "l_homicide [aw = popwt], absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)"
+    global SPEC "l_homicide [aw = popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)"
     cmpreal "1b static, POPULATION WEIGHTED"
 
     capture confirm variable rel
     if !_rc {
-        global SPEC_CLASSIC "l_homicide [aw = popwt], first_stage(i.sid i.year) second_stage(ib100.rel) treatment(post) cluster(sid)"
-        global SPEC_ABSORB  "l_homicide [aw = popwt], absorb(sid year) second_stage(ib100.rel) treatment(post) cluster(sid)"
+        global SPEC "l_homicide [aw = popwt], first_stage(i.sid i.year) second_stage(ib100.rel) treatment(post) cluster(sid)"
         cmpreal "1c event study, weighted"
     }
 }
@@ -166,12 +170,10 @@ else {
     qui count if missing(yexp2)
     display as txt "  never-expander observations: " r(N)
 
-    global SPEC_CLASSIC "dins, first_stage(i.stfips i.year) second_stage(i.treated) treatment(treated) cluster(stfips)"
-    global SPEC_ABSORB  "dins, absorb(stfips year) second_stage(i.treated) treatment(treated) cluster(stfips)"
+    global SPEC "dins, first_stage(i.stfips i.year) second_stage(i.treated) treatment(treated) cluster(stfips)"
     cmpreal "2a static"
 
-    global SPEC_CLASSIC "dins, first_stage(i.stfips i.year) second_stage(ib100.rel) treatment(treated) cluster(stfips)"
-    global SPEC_ABSORB  "dins, absorb(stfips year) second_stage(ib100.rel) treatment(treated) cluster(stfips)"
+    global SPEC "dins, first_stage(i.stfips i.year) second_stage(ib100.rel) treatment(treated) cluster(stfips)"
     cmpreal "2b event study"
 }
 
@@ -193,8 +195,8 @@ else {
 *
 * Note the screen will fire: women whose first observed year already has
 * union == 1 have no untreated observation, so their person effect is not
-* identified. That is a real occurrence, not a defect, and is why the
-* equivalence check below restricts to women with untreated support.
+* identified. v0.7 drops them; v0.6 predicted their effect as zero. That is
+* why the equivalence check below restricts to women with untreated support.
 *==============================================================================
 display as txt _n "{hline 84}"
 display as txt "3. NLS YOUNG WOMEN (webuse nlswork) -- 4,711 person effects"
@@ -218,17 +220,18 @@ else {
     display as txt "  observations on women with NO untreated year: " r(N)
     display as txt "  (the identification screen should drop exactly these)"
 
-    display as txt _n "  -- full sample, absorb() only, default screen --"
+    display as txt _n "  -- full sample, v0.7 only --"
     timer clear 3
     timer on 3
-    qui did2s ln_wage, absorb(idcode year) second_stage(i.treat) ///
+    qui did2s ln_wage, first_stage(i.idcode i.year) second_stage(i.treat) ///
         treatment(treat) cluster(idcode)
     timer off 3
     qui timer list 3
-    display as txt "     absorb: " as res %8.2f r(t3) as txt "s   e(N) = " e(N)
+    display as txt "     v0.7: " as res %8.2f r(t3) as txt "s   e(N) = " e(N) ///
+        "   e(N_noid) = " e(N_noid) "  (dropped by the screen)"
 
     *-- equivalence on a subsample small enough for the dummy path -------------
-    * The classic path forms and inverts a k1 x k1 matrix with k1 ~ 4,700 on
+    * v0.6 forms and inverts a k1 x k1 matrix with k1 ~ 4,700 on
     * the full sample. Set `dofull' to 1 only if you have time and memory.
     local dofull 0
 
@@ -244,16 +247,13 @@ else {
         qui levelsof idcode, local(ids)
         display as txt _n "  -- equivalence subsample: " wordcount("`ids'") " women --"
 
-        global SPEC_CLASSIC "ln_wage, first_stage(i.idcode i.year) second_stage(i.treat) treatment(treat) cluster(idcode)"
-        global SPEC_ABSORB  "ln_wage, absorb(idcode year) second_stage(i.treat) treatment(treat) cluster(idcode)"
+        global SPEC "ln_wage, first_stage(i.idcode i.year) second_stage(i.treat) treatment(treat) cluster(idcode)"
         cmpreal "3a static, person+year FE"
 
-        global SPEC_CLASSIC "ln_wage, first_stage(i.idcode i.year) second_stage(ib100.rel) treatment(treat) cluster(idcode)"
-        global SPEC_ABSORB  "ln_wage, absorb(idcode year) second_stage(ib100.rel) treatment(treat) cluster(idcode)"
+        global SPEC "ln_wage, first_stage(i.idcode i.year) second_stage(ib100.rel) treatment(treat) cluster(idcode)"
         cmpreal "3b event study"
 
-        global SPEC_CLASSIC "ln_wage, first_stage(i.idcode i.year hours) second_stage(i.treat) treatment(treat) cluster(idcode)"
-        global SPEC_ABSORB  "ln_wage, first_stage(hours) absorb(idcode year) second_stage(i.treat) treatment(treat) cluster(idcode)"
+        global SPEC "ln_wage, first_stage(i.idcode i.year hours) second_stage(i.treat) treatment(treat) cluster(idcode)"
         cmpreal "3c covariate with missing values"
     restore
 
@@ -261,14 +261,13 @@ else {
         preserve
             keep if has0 == 1
             display as txt _n "  -- FULL sample equivalence (slow: k1 ~ 4,700) --"
-            global SPEC_CLASSIC "ln_wage, first_stage(i.idcode i.year) second_stage(i.treat) treatment(treat) cluster(idcode)"
-            global SPEC_ABSORB  "ln_wage, absorb(idcode year) second_stage(i.treat) treatment(treat) cluster(idcode)"
+            global SPEC "ln_wage, first_stage(i.idcode i.year) second_stage(i.treat) treatment(treat) cluster(idcode)"
             cmpreal "3d full sample, static"
         restore
     }
 }
 
 display as txt _n "{hline 84}"
-display as txt "All rows should read PASS. Timing on section 3 is the headline"
-display as txt "number for the PR: it is the only one with a large FE dimension."
+display as txt "All rows should read PASS. Section 3's e(N_noid) should equal the count"
+display as txt "of observations on women with no untreated year among rows with ln_wage."
 display as txt "{hline 84}"

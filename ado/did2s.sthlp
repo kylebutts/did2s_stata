@@ -1,7 +1,8 @@
 {smcl}
 {it:v. 0.7} 
 {viewerjumpto "Anticipation" "did2s##anticipation"}{...}
-{viewerjumpto "Absorbing fixed effects" "did2s##absorb"}{...}
+{viewerjumpto "Fixed effects" "did2s##absorb"}{...}
+{viewerjumpto "Changes in version 0.7" "did2s##changes"}{...}
 
 {title:Two-Stage Difference-in-Differences}
 
@@ -16,22 +17,23 @@
 
 {pstd}
 One of {opt first_stage()} or {opt absorb()} is required. They may be combined.
+{cmd:first_stage(i.unit i.year)} and {cmd:absorb(unit year)} are the same model and
+give identical results; see {help did2s##absorb:Fixed effects}.
 
 {synoptset 20 tabbed}{...}
 {synopthdr}
 {synoptline}
 {syntab:Model}
-{synopt :{opth absorb(varlist)}}Numeric categorical variables whose fixed effects are absorbed rather than entered as dummies. Any number of dimensions. {bf:Unit and time effects belong here.} Far faster than entering them in {opt first_stage()} once there are many levels; see {help did2s##absorb:Absorbing fixed effects}. May not be combined with {opt unit()}.{p_end}
-{synopt :{opth first_stage(varlist)}}Covariates {it:other than} the absorbed fixed effects, used along with them to estimate the counterfactual Y_it(0): continuous controls, slope interactions such as {cmd:i.state#c.year}, and anything else absorption cannot express. Factor-variable notation is allowed, so fixed effects may also be entered here as dummies, which is what earlier versions required. One of {opt absorb()} or {opt first_stage()} is required; they may be combined.{p_end}
+{synopt :{opth first_stage(varlist)}}Model for the counterfactual Y_it(0), estimated on untreated observations. Factor-variable notation is allowed. Fixed effects written as plain factor main effects ({cmd:i.unit}, {cmd:ib2010.year}, {cmd:ibn.firm}, ...) are absorbed automatically; everything else (continuous covariates, interactions such as {cmd:i.state#c.year}, level-restricted factors such as {cmd:i(1/3).x}) enters as regressors. See {help did2s##absorb:Fixed effects}.{p_end}
+{synopt :{opth absorb(varlist)}}Numeric categorical variables whose fixed effects are absorbed. {cmd:absorb(unit year)} is the same as {cmd:first_stage(i.unit i.year)}; use whichever reads better.{p_end}
 {synopt :{opth second_stage(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
 {synopt :{opth treatment(varname)}}This must be a 0/1 dummy for when treatment is occuring; D_it = 1 if unit i is treated during period t. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation (shift D_it the number of periods of anticipation).{p_end}
 {synopt :{opth cluster(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
-{synopt :{opth unit(varname)}}Unit variable. If you use this option, *do not include unit fixed effects* in the first_stage regression. This is a trick that speeds up numerical computation that will speed things up a bunch if you have a lot of unit fixed effects. Note that the numerical equivalency only works if clutser is at the unit level (or higher!! e.g. units = people, cluster at state level) In most cases {opt absorb()} is preferable; see {help did2s##absorb:Absorbing fixed effects}.{p_end}
+{synopt :{opth unit(varname)}}Kept for compatibility with earlier versions: the same as {cmd:absorb(}{it:varname}{cmd:)}. Numeric or string. It is no longer needed for speed, since every fixed effect is now absorbed.{p_end}
 
-{syntab:Absorption}
+{syntab:Solver}
 {synopt :{opt tol:erance(#)}}Relative residual at which the first-stage solver stops. Default {cmd:tolerance(1e-12)}.{p_end}
 {synopt :{opt maxit:er(#)}}Maximum solver iterations. Default {cmd:maxiter(2000)}.{p_end}
-{synopt :{opt keepnoid}}Keep observations whose fixed-effect level has no untreated observations. Diagnostic only: the standard errors are not usable. See {help did2s##untreated:No Never-treated Group}.{p_end}
 {synoptline}
 {p2colreset}{...}
 
@@ -64,52 +66,47 @@ The fixed effects could be biased/inconsistent if there are anticipation effects
 {p_end}
 
 {marker absorb}
-{title:Absorbing fixed effects}
+{title:Fixed effects}
 
 {pstd}
-Put plain categorical fixed effects in {opt absorb()}, put everything else in
-{opt first_stage()}, and use both together when the first stage needs both.
-{opt absorb()} is never meaningfully slower and is dramatically faster once the
-fixed effects run past a few hundred levels.
+Every first-stage fixed effect is absorbed: the first stage is solved by
+preconditioned conjugate gradients from level indices and group sums, so no
+dummy variables are created and no matrix with one row per level is ever
+formed. How a first-stage term is handled depends only on its form:
 {p_end}
 
 {p2colset 9 50 52 2}{...}
-{p2col :{it:if the first stage contains}}{it:put it in}{p_end}
+{p2col :{it:first-stage term}}{it:handled as}{p_end}
 {p2line}
-{p2col :categorical effects, any number of dimensions}{cmd:absorb(unit year ...)}{p_end}
-{p2col :continuous covariates}{cmd:first_stage(x1 x2)}{p_end}
-{p2col :both of the above}{cmd:first_stage(x1 x2) absorb(unit year)}{p_end}
-{p2col :slope interactions, e.g. {cmd:i.state#c.year}}{cmd:first_stage(i.state#c.year)}{p_end}
-{p2col :interacted effects, e.g. state-by-year cells}{helpb egen} {cmd:group()} first, then {cmd:absorb()}{p_end}
+{p2col :{cmd:i.x}, {cmd:ib#.x}, {cmd:ib(first).x}, {cmd:ibn.x}, {cmd:i.(x y)}}absorbed fixed effect{p_end}
+{p2col :{cmd:absorb(x)}, {cmd:unit(x)}}absorbed fixed effect{p_end}
+{p2col :continuous covariates}regressor{p_end}
+{p2col :interactions: {cmd:i.state#c.year}, {cmd:i.a#i.b}, {cmd:c.x##i.g}}regressor (main effects of {cmd:##} are absorbed){p_end}
+{p2col :level-restricted factors: {cmd:i(1/3).x}}regressor{p_end}
+{p2col :none of the above}a constant is absorbed{p_end}
 {p2line}
 {p2colreset}{...}
 
 {pstd}
-Anything {opt first_stage()} accepted before it still accepts, and behaves
-exactly as before. {opt absorb()} takes numeric categorical variables only, and
-may not be combined with {opt unit()} — put the unit effect in {opt absorb()}
-instead.
+The same variable named twice (say {cmd:i.unit} and {cmd:unit(unit)}) is
+absorbed once. {cmd:e(absorb)} lists the absorbed dimensions. For interacted
+effects such as state-by-year cells, {cmd:i.state#i.year} works but enters one
+regressor per cell; {cmd:egen} {cmd:group()} followed by {cmd:absorb()} is much
+faster.
 {p_end}
 
-{dlgtab:Why absorb() is faster}
+{dlgtab:Speed}
 
 {pstd}
-{opt first_stage()} builds the design matrix explicitly, so {cmd:i.unit i.year}
-creates one column per level, and the first stage forms and inverts a matrix
-whose dimension is the number of first-stage parameters. That is cubic in the
-number of levels in time and quadratic in memory. {opt absorb()} names the
-dimensions instead and solves the same normal equations by preconditioned
-conjugate gradients using only level indices and group sums, so the matrix is
-never formed. Memory and per-iteration cost are linear in the number of
-observations.
-{p_end}
-
-{pstd}
-Measured on a 20-period panel, event-study second stage, clustered on unit:
+Version 0.6 built the dummy design matrix and inverted its cross-product, which
+is cubic in the number of levels in time and quadratic in memory. The
+conjugate-gradient solve is linear in the number of observations per
+iteration. Measured on a 20-period panel, event-study second stage, clustered
+on unit, same {cmd:first_stage(i.unit i.year)} command:
 {p_end}
 
 {p2colset 9 32 34 2}{...}
-{p2col :{it:units}}{it:speedup}{p_end}
+{p2col :{it:units}}{it:speedup over 0.6}{p_end}
 {p2line}
 {p2col :50 (a state-year panel)}about even{p_end}
 {p2col :500}4x{p_end}
@@ -117,86 +114,94 @@ Measured on a 20-period panel, event-study second stage, clustered on unit:
 {p2col :2,000}24x{p_end}
 {p2col :4,000}107x{p_end}
 {p2col :8,000}456x{p_end}
-{p2col :16,000}not comparable{p_end}
+{p2col :16,000}0.6 runs out of memory{p_end}
 {p2line}
 {p2colreset}{...}
 
 {pstd}
-At 16,000 units the explicit-dummy path is not slow but infeasible: the
-first-stage cross-product matrix alone is about 2 GB before it is inverted, and
-the variance calculation builds a second matrix of the same dimension.
+The variance correction performs one solve per second-stage regressor, so an
+event study with forty leads and lags costs roughly forty times a static
+specification. Each solve is linear in the sample size, so this changes the
+constant and not the scaling. {cmd:tests/benchmark.do} reproduces the
+comparison.
 {p_end}
 
-{pstd}
-{opt absorb()} performs one solve per second-stage regressor, so an event study
-with forty leads and lags costs roughly forty times a static specification.
-Each solve is linear in the sample size, so this changes the constant and not
-the scaling.
-{p_end}
-
-{dlgtab:When the two give different answers}
+{dlgtab:Accuracy}
 
 {pstd}
-On any design where every fixed-effect level has at least one untreated
-observation, the two are the same estimator on the same sample and agree to
-solver tolerance. Point estimates match to about 1e-12 at the default; the
-variance matrix agrees to between 4e-10 and 5e-8. That variance gap does not
-shrink when {opt tolerance()} is tightened, because it originates in the
-explicit-dummy path, which takes a generalized inverse of a singular matrix
-using {cmd:invsym()} and its tolerance-based rank determination. Absorption
-resolves the same singularity by a different route. Agreement is at its worst
-when weights are widely dispersed, which is what degrades the inverse.
-{p_end}
-
-{pstd}
-Where some level has no untreated support, the two differ substantively, not
-numerically, because they use different samples. See
-{help did2s##untreated:No Never-treated Group}. This is worth checking before
-switching an existing specification from one to the other.
-{p_end}
-
-{dlgtab:What absorb() gives up}
-
-{pstd}
-The fixed-effect estimates are never materialized, so unlike the explicit-dummy
-path there is no design matrix to recover them from afterwards. Neither option
-reports first-stage coefficients. {cmd:predict} is not supported after
-{opt absorb()}.
+The solve is iterative and stops at a relative residual of
+{opt tolerance()}. At the default, point estimates match the explicit-dummy
+first stage of version 0.6 to about 1e-12. The variance matrix agrees to
+between 4e-10 and 5e-8; that gap does not shrink when {opt tolerance()} is
+tightened, because it originates in version 0.6, which takes a generalized
+inverse of a singular matrix with {cmd:invsym()} and its tolerance-based rank
+determination. If the solver does not reach {opt tolerance()} within
+{opt maxiter()} iterations, {cmd:did2s} warns that the standard errors should
+not be reported. This also detects a counterfactual that the untreated data do
+not identify, such as fixed effects whose untreated observations fall into
+disconnected groups.
 {p_end}
 
 {dlgtab:Correspondence with the R package}
 
 {pstd}
 In R the first stage is a single {cmd:fixest} formula with the absorbed
-dimensions after the pipe. Stata's option syntax has no equivalent of the pipe,
-so the same distinction is carried by two options:
+dimensions after the pipe. In Stata either form works:
 {p_end}
 
-{phang2}{cmd:first_stage = ~ 0 | unit + year}  becomes  {cmd:absorb(unit year)}{p_end}
-{phang2}{cmd:first_stage = ~ x1 + x2 | unit + year}  becomes  {cmd:first_stage(x1 x2) absorb(unit year)}{p_end}
+{phang2}{cmd:first_stage = ~ 0 | unit + year}  becomes  {cmd:first_stage(i.unit i.year)} or {cmd:absorb(unit year)}{p_end}
+{phang2}{cmd:first_stage = ~ x1 + x2 | unit + year}  becomes  {cmd:first_stage(i.unit i.year x1 x2)} or {cmd:first_stage(x1 x2) absorb(unit year)}{p_end}
 
 
 {marker untreated}
 {title:No Never-treated Group}
 
 {pstd}
-When all units are treated in a year or when some units are always treated, then the time or unit fixed effects can not be estimated. The software could be designed to be able to detect this and automatically drop these observations. However, I have chosen not to do this as it would require a major change in API that would limit the flexibility of the program. As an example, requiring an option for "year fixed effects" would prevent the user from specifying gender-specific year fixed effects. The flexibility of the method (i.e. specifying a well-designed model for untreated outcomes) in my opinion outweighs the cost of not being able to detect this case (I think practically, there are relatively few cases of no never-treated group).
+When all units are treated in a year or when some units are always treated, then the time or unit fixed effects can not be estimated.
 {p_end}
 
 {pstd}
-{opt absorb()} names the fixed-effect dimensions directly, so this detection no longer costs any flexibility: {opt first_stage()} still accepts gender-specific year effects or anything else, and behaves exactly as before. Within {opt absorb()}, levels containing no untreated observations are detected and the affected observations are dropped, with a message reporting how many. {cmd:e(N)} and {cmd:e(sample)} reflect the reduced sample. Specify {opt keepnoid} to keep them. Note that this does not reproduce what {opt first_stage()} returns on the same design: the two resolve the unidentified level inside different parameterizations, so the point estimates differ materially. {opt keepnoid} is a diagnostic. The point-estimate solve remains well posed under it, because the flagged rows carry no untreated weight, but the variance calculation does not: it uses the full-sample weight, so the right-hand side leaves the range of the operator and there is nothing for the solver to converge to. Point estimates are normalization-dependent and the standard errors must not be reported. {cmd:did2s} warns accordingly.
+Since version 0.7 this is detected automatically. Observations in a
+fixed-effect level that has no untreated observations, such as an
+always-treated unit or a year in which every unit is treated, have no
+identified counterfactual. They are dropped with a note reporting how many;
+{cmd:e(N_noid)} holds the count, and {cmd:e(N)} and {cmd:e(sample)} reflect the
+reduced sample. The estimates are those of version 0.6 run on the remaining
+observations, to solver tolerance. This costs no flexibility: the check uses
+only the absorbed dimensions, and any other first-stage specification, such as
+gender-specific year effects, is still accepted.
 {p_end}
 
 
 {marker warning}
 {title:Important Warning}
 
-Due to the way Stata handles the `predict` command, users of this package should be careful when they have always-treated units in their data or if all units end up treated before the end of the panel. 
-If any value of `i.unit` or `i.year` are not estimated, then predict will estimate them as 0s which can predict very weird results. 
+{pstd}
+Before version 0.7, a fixed-effect level with no untreated observations (an
+always-treated unit, or a period in which every unit is treated) was predicted
+as 0, which could produce very odd results. Version 0.7 drops those
+observations instead and reports how many. Results on such data therefore
+differ from earlier versions; see {help did2s##untreated:No Never-treated Group}.
+{p_end}
 
 {pstd}
-{opt absorb()} detects this case and reports it. See {help did2s##untreated:No Never-treated Group}.
+Interaction and slope terms, such as {cmd:i.state#c.year}, are not screened in
+this way. If such a term has no variation among untreated observations but does
+among treated ones, its contribution is not identified; the solver then fails
+to converge and {cmd:did2s} warns that the standard errors should not be
+reported.
 {p_end}
+
+
+{marker changes}
+{title:Changes in version 0.7}
+
+{phang2}o  The first stage is solved by conjugate gradients with absorbed fixed effects. Existing {cmd:first_stage()} commands run unchanged, much faster when there are many fixed-effect levels.{p_end}
+{phang2}o  New option {opt absorb()}, equivalent to entering {cmd:i.}{it:var} in {opt first_stage()}.{p_end}
+{phang2}o  Observations whose fixed-effect level has no untreated observations are dropped instead of being predicted with that effect set to 0. New result {cmd:e(N_noid)}.{p_end}
+{phang2}o  Weight expressions such as {cmd:[aw = pop*2]} now work.{p_end}
+{phang2}o  {opt unit()} is kept as an alias for {opt absorb()} and accepts string variables.{p_end}
+{phang2}o  The treatment variable must be 0/1.{p_end}
 
 {title:Examples:}
 
@@ -217,12 +222,15 @@ If any value of `i.unit` or `i.year` are not estimated, then predict will estima
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage(i.sid i.year $demo) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 
-{pstd}Absorbing the fixed effects instead. Equivalent to the above, and much faster when there are many levels{p_end}
+{pstd}The same models written with {opt absorb()}; results are identical{p_end}
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 {phang2}{cmd:. did2s l_homicide [aweight=popwt], first_stage($demo) absorb(sid year) second_stage(i.post) treatment(post) cluster(sid)}{p_end}
 
-{pstd}A panel with many units, where the explicit-dummy first stage is impractical{p_end}
-{phang2}{cmd:. did2s dep_var, absorb(unit year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(unit)}{p_end}
+{pstd}Unit rather than state fixed effects (1,000 levels){p_end}
+{phang2}{cmd:. use https://github.com/kylebutts/did2s_stata/raw/main/data/df_het.dta, clear}{p_end}
+{phang2}{cmd:. gen rel_year_shift = rel_year + 20}{p_end}
+{phang2}{cmd:. replace rel_year_shift = 100 if rel_year_shift == .}{p_end}
+{phang2}{cmd:. did2s dep_var, first_stage(i.unit i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(unit)}{p_end}
 
 {pstd}Three absorbed dimensions{p_end}
 {phang2}{cmd:. did2s y, absorb(firm worker year) second_stage(i.treat) treatment(treat) cluster(firm)}{p_end}
@@ -239,6 +247,7 @@ If any value of `i.unit` or `i.year` are not estimated, then predict will estima
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Scalars}{p_end}
 {synopt:{cmd:e(N)}}number of observations{p_end}
+{synopt:{cmd:e(N_noid)}}observations dropped because a fixed-effect level had no untreated observations{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Macros}{p_end}
@@ -246,7 +255,7 @@ If any value of `i.unit` or `i.year` are not estimated, then predict will estima
 {synopt:{cmd:e(cmdline)}}command as typed{p_end}
 {synopt:{cmd:e(depvar)}}name of dependent variable{p_end}
 {synopt:{cmd:e(clustvar)}}name of cluster variable{p_end}
-{synopt:{cmd:e(absorb)}}absorbed dimensions, if {opt absorb()} was used{p_end}
+{synopt:{cmd:e(absorb)}}absorbed fixed-effect dimensions, from {opt absorb()}, {opt unit()} and {opt first_stage()}{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Matrices}{p_end}

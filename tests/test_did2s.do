@@ -1,5 +1,5 @@
-*! test_did2s.do -- rev 3 (2026-10-21): adds e(converged), e(depvar), c.x##i.g routing, and the two
-*!   non-convergence cases the help file describes (E13-E14)
+*! test_did2s.do -- rev 4 (2026-10-21): E13-E16 separate identified from unidentified
+*!   disconnected designs; D15 checks that c.x##i.g absorbs i.g
 *------------------------------------------------------------------------------
 * did2s v0.7: TEST SUITE
 *
@@ -44,7 +44,7 @@ global NFAIL 0
 global NTEST 0
 
 display as txt _n "{hline 92}"
-display as txt "test_did2s.do  [rev 3]"
+display as txt "test_did2s.do  [rev 4]"
 display as txt "{hline 92}"
 
 *-- helpers -------------------------------------------------------------------
@@ -352,7 +352,7 @@ global B "did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) $OPT"
 cmp "D14 term order does not matter" 1e-11 1e-9
 
 qui did2s dep_var, first_stage(i.state i.year c.xcov##i.region) second_stage(i.treat) $OPT
-display as txt %-52s "D15 c.x##i.g" "  e(absorb) = `e(absorb)'" _col(98) "(info)"
+chkabs "D15 c.x##i.g absorbs i.g" "state year region"
 
 qui did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) $OPT
 chk "D16 e(converged) on a regular run" "e(converged) == 1" "e(converged) = `e(converged)'"
@@ -449,13 +449,21 @@ preserve
     chk "E12   ... fully treated periods dropped" "e(N_noid) == `nnoid'" "e(N_noid) = `e(N_noid)', expected `nnoid'"
 restore
 
-preserve
-    * Disconnected untreated support. Units 1-50 are untreated in years 1-10,
-    * units 51-100 in years 11-20. Every unit and every year has untreated
-    * observations, so nothing is dropped, but units 1-50 in years 11-20 have
-    * no identified counterfactual: their unit and year effects are estimated
-    * in separate components with separate normalizations. The variance solve
-    * cannot converge, and did2s must say so.
+* Disconnected untreated support. Units 1-nA are untreated in years 1-10,
+* the rest in years 11-20. Every unit and year has untreated observations, so
+* nothing is dropped, but the unit and year effects are estimated in two
+* separate components, each with its own arbitrary normalization. Treated
+* rows (units 1-nA in years 11-20 and the rest in years 1-10) straddle the
+* two, so their counterfactuals are not identified.
+*
+* Whether the ATT is identified depends on the balance of treated rows. With
+* a 50/50 split, shifting one component's normalization moves the two kinds
+* of treated row by equal and opposite amounts, so the ATT is unchanged: it
+* is identified, the variance solve converges, and v0.7 must match v0.6.
+* With a 30/70 split it is not identified: the solve must not converge.
+capture program drop mkdisc
+program define mkdisc
+    args nA
     clear
     set seed 202
     qui set obs 100
@@ -463,11 +471,22 @@ preserve
     gen double a = rnormal()
     qui expand 20
     bysort u: gen int t = _n
-    gen byte treat = cond(u <= 50, t > 10, t <= 10)
+    gen byte treat = cond(u <= `nA', t > 10, t <= 10)
     gen double y = a + 0.1 * t + treat + rnormal()
+end
+
+preserve
+    mkdisc 50
+    global A "did2s     y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)"
+    global B "did2s_ref y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)"
+    qui $A
+    chk "E13 disconnected, ATT identified: nothing dropped" "e(N_noid) == 0" "e(N_noid) = `e(N_noid)'"
+    chk "E14   ... converged" "e(converged) == 1" "e(converged) = `e(converged)'"
+    cmp "E15   ... equals v0.6"
+
+    mkdisc 30
     qui did2s y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)
-    chk "E13 disconnected untreated support: nothing dropped" "e(N_noid) == 0" "e(N_noid) = `e(N_noid)'"
-    chk "E14   ... and flagged as not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
+    chk "E16 disconnected, ATT not identified: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
 restore
 
 preserve
@@ -475,7 +494,7 @@ preserve
     * rows: its coefficient is not identified from untreated data.
     gen double xz = xcov * treat
     qui did2s dep_var, first_stage(i.state i.year xz) second_stage(i.treat) $OPT
-    chk "E15 covariate with no untreated variation: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
+    chk "E17 covariate with no untreated variation: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
 restore
 
 *==============================================================================

@@ -112,12 +112,12 @@ event study with 21 relative-time indicators. Seconds, Stata 18 MP, 4 cores:
 {col 9}{it:units}{col 18}{it:obs}{col 29}{it:static}{col 49}{it:event study}
 {col 29}{it:0.6}{col 37}{it:0.7}{col 49}{it:0.6}{col 57}{it:0.7}
 {col 9}{hline 54}
-{col 9}  500{col 16} 10,000{col 27}  0.59{col 35}  0.07{col 47}  0.60{col 55}  0.21
-{col 9}1,000{col 16} 20,000{col 27}  3.18{col 35}  0.08{col 47}  3.21{col 55}  0.38
-{col 9}2,000{col 16} 40,000{col 27} 20.61{col 35}  0.15{col 47} 20.96{col 55}  0.77
-{col 9}4,000{col 16} 80,000{col 27}182.96{col 35}  0.27{col 47}182.75{col 55}  1.36
-{col 9}8,000{col 16}160,000{col 29}{c -}{col 35}  0.49{col 49}{c -}{col 55}  2.74
-{col 9}16,000{col 16}320,000{col 29}{c -}{col 35}  1.01{col 49}{c -}{col 55}  5.24
+{col 9}  500{col 16} 10,000{col 27}  0.65{col 35}  0.07{col 47}  0.62{col 55}  0.23
+{col 9}1,000{col 16} 20,000{col 27}  3.31{col 35}  0.09{col 47}  3.27{col 55}  0.41
+{col 9}2,000{col 16} 40,000{col 27} 21.62{col 35}  0.18{col 47} 21.71{col 55}  0.79
+{col 9}4,000{col 16} 80,000{col 27}186.97{col 35}  0.34{col 47}189.97{col 55}  1.45
+{col 9}8,000{col 16}160,000{col 29}{c -}{col 35}  0.61{col 49}{c -}{col 55}  2.75
+{col 9}16,000{col 16}320,000{col 29}{c -}{col 35}  1.21{col 49}{c -}{col 55}  5.56
 {col 9}{hline 54}
 
 {pstd}
@@ -127,7 +127,7 @@ with each doubling, while version 0.7's roughly doubled.
 
 {pstd}
 The variance correction performs one solve per second-stage regressor, so an
-event study costs more than a static specification, about five times as much
+event study costs more than a static specification, four to five times as much
 in the table above. Each solve is linear in the sample size, so this
 changes the constant and not the scaling. {cmd:tests/benchmark.do} reproduces
 the table.

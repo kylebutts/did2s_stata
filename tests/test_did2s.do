@@ -1,4 +1,5 @@
-*! test_did2s.do -- rev 2 (2026-10-20): adds cases 9 and 11 of the 2026-10-19 comparison
+*! test_did2s.do -- rev 3 (2026-10-21): adds e(converged), e(depvar), c.x##i.g routing, and the two
+*!   non-convergence cases the help file describes (E13-E14)
 *------------------------------------------------------------------------------
 * did2s v0.7: TEST SUITE
 *
@@ -43,7 +44,7 @@ global NFAIL 0
 global NTEST 0
 
 display as txt _n "{hline 92}"
-display as txt "test_did2s.do  [rev 2]"
+display as txt "test_did2s.do  [rev 3]"
 display as txt "{hline 92}"
 
 *-- helpers -------------------------------------------------------------------
@@ -350,6 +351,15 @@ global A "did2s dep_var, first_stage(i.year i.state) second_stage(i.treat) $OPT"
 global B "did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) $OPT"
 cmp "D14 term order does not matter" 1e-11 1e-9
 
+qui did2s dep_var, first_stage(i.state i.year c.xcov##i.region) second_stage(i.treat) $OPT
+display as txt %-52s "D15 c.x##i.g" "  e(absorb) = `e(absorb)'" _col(98) "(info)"
+
+qui did2s dep_var, first_stage(i.state i.year) second_stage(i.treat) $OPT
+chk "D16 e(converged) on a regular run" "e(converged) == 1" "e(converged) = `e(converged)'"
+local dv "`e(depvar)'"
+local okdv = ("`dv'" == "dep_var")
+chk "D17 e(depvar)" "`okdv'" "e(depvar) = `dv'"
+
 *==============================================================================
 display as txt _n "E. fixed-effect levels with no untreated observations"
 display as txt "{hline 92}"
@@ -437,6 +447,35 @@ preserve
     cmp "E11 no never-treated units, event study"
     qui $A
     chk "E12   ... fully treated periods dropped" "e(N_noid) == `nnoid'" "e(N_noid) = `e(N_noid)', expected `nnoid'"
+restore
+
+preserve
+    * Disconnected untreated support. Units 1-50 are untreated in years 1-10,
+    * units 51-100 in years 11-20. Every unit and every year has untreated
+    * observations, so nothing is dropped, but units 1-50 in years 11-20 have
+    * no identified counterfactual: their unit and year effects are estimated
+    * in separate components with separate normalizations. The variance solve
+    * cannot converge, and did2s must say so.
+    clear
+    set seed 202
+    qui set obs 100
+    gen long u = _n
+    gen double a = rnormal()
+    qui expand 20
+    bysort u: gen int t = _n
+    gen byte treat = cond(u <= 50, t > 10, t <= 10)
+    gen double y = a + 0.1 * t + treat + rnormal()
+    qui did2s y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)
+    chk "E13 disconnected untreated support: nothing dropped" "e(N_noid) == 0" "e(N_noid) = `e(N_noid)'"
+    chk "E14   ... and flagged as not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
+restore
+
+preserve
+    * A covariate that is zero on every untreated row but not on treated
+    * rows: its coefficient is not identified from untreated data.
+    gen double xz = xcov * treat
+    qui did2s dep_var, first_stage(i.state i.year xz) second_stage(i.treat) $OPT
+    chk "E15 covariate with no untreated variation: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
 restore
 
 *==============================================================================

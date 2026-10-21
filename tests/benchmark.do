@@ -1,4 +1,4 @@
-*! benchmark.do -- rev 1 (2026-10-20)
+*! benchmark.do -- rev 2 (2026-10-21): warm-up call before timing
 *------------------------------------------------------------------------------
 * did2s: v0.7 vs v0.6 timing on the same first_stage(i.unit i.year) command.
 *
@@ -45,6 +45,12 @@ program define timeit, rclass
     qui timer list 9
     return scalar t = r(t9)
 end
+
+* Warm-up: the first call in a session pays one-off costs (loading and
+* compiling), which would otherwise land on the 500-unit row.
+mkpanel 200
+qui did2s     y, first_stage(i.unit i.year) second_stage(ib100.rel) treatment(treat) cluster(unit)
+qui did2s_ref y, first_stage(i.unit i.year) second_stage(ib100.rel) treatment(treat) cluster(unit)
 
 display as txt _n "{hline 76}"
 display as txt "  units        N   second stage        v0.6 (s)    v0.7 (s)    speedup"

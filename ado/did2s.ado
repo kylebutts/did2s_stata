@@ -184,7 +184,8 @@ program define did2s, eclass
     mata: V = _d2s_hdfe_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
     capture mata: mata drop __D2S
 
-    if (scalar(__d2s_rmax) > `tolerance') {
+    local converged = (scalar(__d2s_rmax) <= `tolerance')
+    if (!`converged') {
       display as txt "warning: first-stage solver did not converge (max relative residual "
       display as txt "         " %8.1e scalar(__d2s_rmax) ", tolerance `tolerance')."
       display as txt "         This usually means some treated observation's counterfactual is not"
@@ -212,13 +213,14 @@ program define did2s, eclass
     matrix colnames `V_final' = `V_names'
 
     ereturn clear
-    ereturn post `b' `V_final', esample(`touse')
+    ereturn post `b' `V_final', esample(`touse') depname(`varlist')
     ereturn local cmdline `"`0'"'
     ereturn local cmd "did2s"
     ereturn local clustvar "`cluster'"
     ereturn local absorb "`fe_show'"
     ereturn scalar N = `N'
     ereturn scalar N_noid = `ndrop'
+    ereturn scalar converged = `converged'
 
     ereturn display
 end

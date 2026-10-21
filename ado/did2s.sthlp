@@ -27,7 +27,7 @@ give identical results; see {help did2s##absorb:Fixed effects}.
 {synopt :{opth first_stage(varlist)}}Model for the counterfactual Y_it(0), estimated on untreated observations. Factor-variable notation is allowed. Fixed effects written as plain factor main effects ({cmd:i.unit}, {cmd:ib2010.year}, {cmd:ibn.firm}, ...) are absorbed automatically; everything else (continuous covariates, interactions such as {cmd:i.state#c.year}, level-restricted factors such as {cmd:i(1/3).x}) enters as regressors. See {help did2s##absorb:Fixed effects}.{p_end}
 {synopt :{opth absorb(varlist)}}Numeric categorical variables whose fixed effects are absorbed. {cmd:absorb(unit year)} is the same as {cmd:first_stage(i.unit i.year)}; use whichever reads better.{p_end}
 {synopt :{opth second_stage(varlist)}}List of treatment variables. This could be, for example a 0/1 treatment dummy, a set of event-study leads/lags, or a continuous treatment variable.{p_end}
-{synopt :{opth treatment(varname)}}This must be a 0/1 dummy for when treatment is occuring; D_it = 1 if unit i is treated during period t. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation (shift D_it the number of periods of anticipation).{p_end}
+{synopt :{opth treatment(varname)}}This must be a 0/1 dummy for when treatment is occurring; D_it = 1 if unit i is treated during period t. See {help did2s##anticipation:Anticipation} for details on how to deal with anticipation (shift D_it the number of periods of anticipation).{p_end}
 {synopt :{opth cluster(varname)}}What variable to cluster on (use unit id if you don't want to cluster).{p_end}
 {synopt :{opth unit(varname)}}Kept for compatibility with earlier versions: the same as {cmd:absorb(}{it:varname}{cmd:)}. Numeric or string. It is no longer needed for speed, since every fixed effect is now absorbed.{p_end}
 
@@ -62,7 +62,7 @@ This procedure works so long as μ_i and μ_t are consistently estimated. The ke
 {p_end}
 
 {pstd}
-The fixed effects could be biased/inconsistent if there are anticipation effects, i.e. units respond before treatment starts. The fix is fairly simple, simply “shift” treatment date earlier by as many years as you suspect anticipation to occur (e.g. 2 years before treatment starts) and estimate on the subsample where the shifted treatment equals zero. If you suspect there is anticipation, pass this modified variable to {bf: treat_var}.
+The fixed effects could be biased/inconsistent if there are anticipation effects, i.e. units respond before treatment starts. The fix is fairly simple, simply “shift” treatment date earlier by as many years as you suspect anticipation to occur (e.g. 2 years before treatment starts) and estimate on the subsample where the shifted treatment equals zero. If you suspect there is anticipation, pass this modified variable to {opt treatment()}.
 {p_end}
 
 {marker absorb}
@@ -81,7 +81,7 @@ formed. How a first-stage term is handled depends only on its form:
 {p2col :{cmd:i.x}, {cmd:ib#.x}, {cmd:ib(first).x}, {cmd:ibn.x}, {cmd:i.(x y)}}absorbed fixed effect{p_end}
 {p2col :{cmd:absorb(x)}, {cmd:unit(x)}}absorbed fixed effect{p_end}
 {p2col :continuous covariates}regressor{p_end}
-{p2col :interactions: {cmd:i.state#c.year}, {cmd:i.a#i.b}, {cmd:c.x##i.g}}regressor (main effects of {cmd:##} are absorbed){p_end}
+{p2col :interactions: {cmd:i.state#c.year}, {cmd:i.a#i.b}, {cmd:c.x##i.g}}regressor{p_end}
 {p2col :level-restricted factors: {cmd:i(1/3).x}}regressor{p_end}
 {p2col :none of the above}a constant is absorbed{p_end}
 {p2line}
@@ -89,7 +89,9 @@ formed. How a first-stage term is handled depends only on its form:
 
 {pstd}
 The same variable named twice (say {cmd:i.unit} and {cmd:unit(unit)}) is
-absorbed once. {cmd:e(absorb)} lists the absorbed dimensions. For interacted
+absorbed once. {cmd:e(absorb)} lists the absorbed dimensions. To be sure a
+factor's main effect is absorbed, write it as its own term: {cmd:i.g c.x#i.g}
+rather than {cmd:c.x##i.g}. For interacted
 effects such as state-by-year cells, {cmd:i.state#i.year} works but enters one
 regressor per cell; {cmd:egen} {cmd:group()} followed by {cmd:absorb()} is much
 faster.
@@ -98,48 +100,55 @@ faster.
 {dlgtab:Speed}
 
 {pstd}
-Version 0.6 built the dummy design matrix and inverted its cross-product, which
-is cubic in the number of levels in time and quadratic in memory. The
-conjugate-gradient solve is linear in the number of observations per
-iteration. Measured on a 20-period panel, event-study second stage, clustered
-on unit, same {cmd:first_stage(i.unit i.year)} command:
+Version 0.6 built the dummy design matrix and inverted its cross-product, so
+its run time grows with the cube of the number of fixed-effect levels. The
+conjugate-gradient solve costs time linear in the number of observations per
+iteration. Same {cmd:first_stage(i.unit i.year)} command in both versions;
+20-period staggered panel, half the units never treated, clustered on unit;
+event study with 21 relative-time indicators. Seconds, Stata 18 MP, 4 cores:
 {p_end}
 
-{p2colset 9 32 34 2}{...}
-{p2col :{it:units}}{it:speedup over 0.6}{p_end}
-{p2line}
-{p2col :50 (a state-year panel)}about even{p_end}
-{p2col :500}4x{p_end}
-{p2col :1,000}7x{p_end}
-{p2col :2,000}24x{p_end}
-{p2col :4,000}107x{p_end}
-{p2col :8,000}456x{p_end}
-{p2col :16,000}0.6 runs out of memory{p_end}
-{p2line}
-{p2colreset}{...}
+{col 9}{it:units}{col 18}{it:obs}{col 29}{it:static}{col 49}{it:event study}
+{col 29}{it:0.6}{col 37}{it:0.7}{col 49}{it:0.6}{col 57}{it:0.7}
+{col 9}{hline 54}
+{col 9}  500{col 16} 10,000{col 27}  0.87{col 35}  0.18{col 47}  0.87{col 55}  0.64
+{col 9}1,000{col 16} 20,000{col 27}  3.22{col 35}  0.08{col 47}  3.28{col 55}  0.39
+{col 9}2,000{col 16} 40,000{col 27} 21.77{col 35}  0.15{col 47} 21.44{col 55}  0.94
+{col 9}4,000{col 16} 80,000{col 27}184.86{col 35}  0.27{col 47}185.66{col 55}  1.42
+{col 9}8,000{col 16}160,000{col 29}{c -}{col 35}  0.50{col 49}{c -}{col 55}  2.65
+{col 9}16,000{col 16}320,000{col 29}{c -}{col 35}  1.05{col 49}{c -}{col 55}  5.41
+{col 9}{hline 54}
+
+{pstd}
+Version 0.6 was not run beyond 4,000 units. From 1,000 units on, its time rose
+about sevenfold to eightfold with each doubling, while version 0.7's roughly
+doubled.
+{p_end}
 
 {pstd}
 The variance correction performs one solve per second-stage regressor, so an
-event study with forty leads and lags costs roughly forty times a static
-specification. Each solve is linear in the sample size, so this changes the
-constant and not the scaling. {cmd:tests/benchmark.do} reproduces the
-comparison.
+event study costs more than a static specification: about five times as much
+in the table above. Each solve is linear in the sample size, so this
+changes the constant and not the scaling. {cmd:tests/benchmark.do} reproduces
+the table.
 {p_end}
 
 {dlgtab:Accuracy}
 
 {pstd}
 The solve is iterative and stops at a relative residual of
-{opt tolerance()}. At the default, point estimates match the explicit-dummy
-first stage of version 0.6 to about 1e-12. The variance matrix agrees to
-between 4e-10 and 5e-8; that gap does not shrink when {opt tolerance()} is
+{opt tolerance()}. At the default, point estimates matched the explicit-dummy
+first stage of version 0.6 to 1e-11 or better in the package's tests, and to
+6e-11 on real data with a covariate. The variance matrix agreed to between
+1e-10 and 5e-8; that gap does not shrink when {opt tolerance()} is
 tightened, because it originates in version 0.6, which takes a generalized
 inverse of a singular matrix with {cmd:invsym()} and its tolerance-based rank
 determination. If the solver does not reach {opt tolerance()} within
 {opt maxiter()} iterations, {cmd:did2s} warns that the standard errors should
-not be reported. This also detects a counterfactual that the untreated data do
-not identify, such as fixed effects whose untreated observations fall into
-disconnected groups.
+not be reported and sets {cmd:e(converged)} to 0. This also detects a
+counterfactual that the untreated data do not identify, such as fixed effects
+whose untreated observations fall into disconnected groups, or a covariate that
+does not vary among untreated observations.
 {p_end}
 
 {dlgtab:Correspondence with the R package}
@@ -185,11 +194,12 @@ differ from earlier versions; see {help did2s##untreated:No Never-treated Group}
 {p_end}
 
 {pstd}
-Interaction and slope terms, such as {cmd:i.state#c.year}, are not screened in
-this way. If such a term has no variation among untreated observations but does
-among treated ones, its contribution is not identified; the solver then fails
-to converge and {cmd:did2s} warns that the standard errors should not be
-reported.
+Covariates and interaction terms, such as {cmd:i.state#c.year}, are not
+screened in this way, and neither are fixed effects whose untreated
+observations fall into disconnected groups. If the untreated data do not
+identify a treated observation's counterfactual, the solver fails to converge,
+{cmd:did2s} warns that the standard errors should not be reported, and
+{cmd:e(converged)} is 0.
 {p_end}
 
 
@@ -201,6 +211,8 @@ reported.
 {phang2}o  Observations whose fixed-effect level has no untreated observations are dropped instead of being predicted with that effect set to 0. New result {cmd:e(N_noid)}.{p_end}
 {phang2}o  Weight expressions such as {cmd:[aw = pop*2]} now work.{p_end}
 {phang2}o  {opt unit()} is kept as an alias for {opt absorb()} and accepts string variables.{p_end}
+{phang2}o  New options {opt tolerance()} and {opt maxiter()} control the solver. New result {cmd:e(converged)}.{p_end}
+{phang2}o  {cmd:e(depvar)} is now stored.{p_end}
 {phang2}o  The treatment variable must be 0/1.{p_end}
 
 {title:Examples:}
@@ -232,7 +244,7 @@ reported.
 {phang2}{cmd:. replace rel_year_shift = 100 if rel_year_shift == .}{p_end}
 {phang2}{cmd:. did2s dep_var, first_stage(i.unit i.year) second_stage(ib100.rel_year_shift) treatment(treat) cluster(unit)}{p_end}
 
-{pstd}Three absorbed dimensions{p_end}
+{pstd}Three absorbed dimensions (schematic: {cmd:firm}, {cmd:worker} and {cmd:year} stand for your own variables){p_end}
 {phang2}{cmd:. did2s y, absorb(firm worker year) second_stage(i.treat) treatment(treat) cluster(firm)}{p_end}
 
 
@@ -248,6 +260,7 @@ reported.
 {p2col 5 20 24 2: Scalars}{p_end}
 {synopt:{cmd:e(N)}}number of observations{p_end}
 {synopt:{cmd:e(N_noid)}}observations dropped because a fixed-effect level had no untreated observations{p_end}
+{synopt:{cmd:e(converged)}}1 if the solver reached {opt tolerance()}, 0 otherwise{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Macros}{p_end}

@@ -184,18 +184,29 @@ program define did2s, eclass
     mata: V = _d2s_hdfe_V(__D2S, "`vars_second'", "`second_u'", "`cluster'", "`touse'", `tolerance', `maxiter')
     capture mata: mata drop __D2S
 
-    local converged = (scalar(__d2s_rmax) <= `tolerance')
-    if (!`converged') {
+    local conv_b  = (scalar(__d2s_rmax_b)  <= `tolerance')
+    local conv_id = (scalar(__d2s_rmax_id) <= `tolerance')
+    local converged = `conv_b' & `conv_id'
+    if (!`conv_b') {
       display as txt "warning: first-stage solver did not converge (max relative residual "
-      display as txt "         " %8.1e scalar(__d2s_rmax) ", tolerance `tolerance')."
-      display as txt "         This usually means some treated observation's counterfactual is not"
-      display as txt "         identified from the untreated data, e.g. a first-stage covariate"
-      display as txt "         that does not vary among untreated observations, or fixed effects"
-      display as txt "         whose untreated observations fall into disconnected groups."
-      display as txt "         DO NOT report these standard errors. Try {bf:maxiter()}, a coarser"
-      display as txt "         first-stage specification, or a cluster bootstrap."
+      display as txt "         " %8.1e scalar(__d2s_rmax_b) ", tolerance `tolerance')."
+      display as txt "         This usually means the treatment effects are not identified: some"
+      display as txt "         treated observations' counterfactuals are not determined by the"
+      display as txt "         untreated data, e.g. a first-stage covariate that does not vary"
+      display as txt "         among untreated observations, or fixed effects whose untreated"
+      display as txt "         observations fall into disconnected groups. DO NOT report these"
+      display as txt "         estimates or standard errors. Try {bf:maxiter()} or a coarser"
+      display as txt "         first-stage specification."
+    }
+    else if (!`conv_id') {
+      display as txt "warning: some treated observations' counterfactuals are not determined by the"
+      display as txt "         untreated data (e.g. fixed effects whose untreated observations fall"
+      display as txt "         into disconnected groups). The point estimates do not depend on them,"
+      display as txt "         but the standard errors do: DO NOT report these standard errors."
     }
     capture scalar drop __d2s_rmax
+    capture scalar drop __d2s_rmax_b
+    capture scalar drop __d2s_rmax_id
 
   *-> Export
     * Second stage regression (with pretty display)
@@ -544,8 +555,8 @@ mata:
   real matrix _d2s_hdfe_V(struct _d2s_prob scalar s, string scalar x2names, string scalar u2name, string scalar clname, string scalar tousename, real scalar tol, real scalar maxiter)
   {
     real matrix X2, C, B, Z, S, A, info, meat, bread
-    real colvector u2, clv, p
-    real scalar k2, G, g
+    real colvector u2, clv, p, ti, r
+    real scalar k2, G, g, rmax_b
 
     X2  = st_data(., tokens(x2names), tousename)
     u2  = st_data(., u2name, tousename)
@@ -570,7 +581,27 @@ mata:
     meat  = cross(A, A)
     bread = invsym(cross(X2, s.w, X2))
 
-    st_numscalar("__d2s_rmax", s.rmax)
+    /* Identification check. The solves above converge iff the second-stage
+       POINT ESTIMATES are identified. The standard errors need more: each
+       treated observation's counterfactual, because the clustered scores
+       use its residual. Row i's counterfactual is identified iff x1_i lies
+       in the row space of X10, so one more solve with right-hand side
+       X1' r, r a fixed generic weighting of the treated rows, is consistent
+       iff all of them are (except on a measure-zero set of r). r is a Weyl
+       sequence, so the user's random-number state is untouched. With one
+       absorbed dimension and no covariates every treated row is identified
+       once the screen has run, so the check is skipped. */
+    rmax_b = s.rmax
+    s.rmax = 0
+    ti = selectindex(s.treat :* (s.w :!= 0))
+    if (rows(ti) > 0 & (s.D > 1 | s.q > 0)) {
+      r = J(s.N, 1, 0)
+      r[ti, 1] = mod((1::rows(ti)) * 0.6180339887498949, 1) :- 0.5
+      (void) _d2s_pcg(s, _d2s_XtWv(s, r), tol, maxiter)
+    }
+    st_numscalar("__d2s_rmax_b", rmax_b)
+    st_numscalar("__d2s_rmax_id", s.rmax)
+    s.rmax = max((rmax_b, s.rmax))
     return(bread * meat * bread)
   }
 

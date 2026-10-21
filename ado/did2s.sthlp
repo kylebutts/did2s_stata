@@ -195,12 +195,15 @@ differ from earlier versions; see {help did2s##untreated:No Never-treated Group}
 Two other cases are not screened in this way: a covariate or interaction term
 (such as {cmd:i.state#c.year}) that does not vary among untreated observations,
 and fixed effects whose untreated observations fall into disconnected groups.
-Either can leave a treated observation's counterfactual unidentified. That
-matters only if the second-stage estimates depend on it. When they do, the
-variance solve cannot converge, so {cmd:did2s} warns that the standard errors
-should not be reported and sets {cmd:e(converged)} to 0. When they do not, the
-estimates are identified despite the gap, and {cmd:did2s} reports them
-normally.
+Either can leave some treated observations' counterfactuals unidentified.
+{cmd:did2s} checks for this with one extra solve and, if it finds any, warns
+and sets {cmd:e(converged)} to 0. Usually the treatment effects are then not
+identified either, and the warning says not to report the estimates. In a
+balanced design they can still be identified while the clustered standard
+errors are not, because the standard errors depend on each treated
+observation's residual; the warning then says not to report the standard
+errors. Version 0.6 reported arbitrary results in both cases without
+warning.
 {p_end}
 
 
@@ -213,6 +216,7 @@ normally.
 {phang2}o  Weight expressions such as {cmd:[aw = pop*2]} now work.{p_end}
 {phang2}o  {opt unit()} is kept as an alias for {opt absorb()} and accepts string variables.{p_end}
 {phang2}o  New options {opt tolerance()} and {opt maxiter()} control the solver. New result {cmd:e(converged)}.{p_end}
+{phang2}o  Warns when a treated observation's counterfactual is not identified by the untreated data, which version 0.6 did not detect.{p_end}
 {phang2}o  {cmd:e(depvar)} is now stored.{p_end}
 {phang2}o  The treatment variable must be 0/1.{p_end}
 
@@ -261,7 +265,7 @@ normally.
 {p2col 5 20 24 2: Scalars}{p_end}
 {synopt:{cmd:e(N)}}number of observations{p_end}
 {synopt:{cmd:e(N_noid)}}observations dropped because a fixed-effect level had no untreated observations{p_end}
-{synopt:{cmd:e(converged)}}1 if the solver reached {opt tolerance()}, 0 otherwise{p_end}
+{synopt:{cmd:e(converged)}}1 if every solve reached {opt tolerance()}, 0 otherwise, including when a treated observation's counterfactual is not identified{p_end}
 
 {synoptset 20 tabbed}{...}
 {p2col 5 20 24 2: Macros}{p_end}

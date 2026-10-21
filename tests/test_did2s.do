@@ -1,5 +1,5 @@
-*! test_did2s.do -- rev 4 (2026-10-21): E13-E16 separate identified from unidentified
-*!   disconnected designs; D15 checks that c.x##i.g absorbs i.g
+*! test_did2s.do -- rev 5 (2026-10-21): every did2s run in cmp must converge unless marked;
+*!   E13-E16 cover b identified but SEs not (balanced) and neither (unbalanced)
 *------------------------------------------------------------------------------
 * did2s v0.7: TEST SUITE
 *
@@ -44,7 +44,7 @@ global NFAIL 0
 global NTEST 0
 
 display as txt _n "{hline 92}"
-display as txt "test_did2s.do  [rev 4]"
+display as txt "test_did2s.do  [rev 5]"
 display as txt "{hline 92}"
 
 *-- helpers -------------------------------------------------------------------
@@ -81,10 +81,12 @@ program define _t_tally
     if ("`pass'" != "1") global NFAIL = $NFAIL + 1
 end
 
-* Runs $A and $B (full commands), compares. Optional thresholds.
+* Runs $A and $B (full commands), compares. Optional thresholds. Every did2s
+* run must also report e(converged) = 1, unless the 4th argument is noconv:
+* this catches false alarms from the identification check.
 capture program drop cmp
 program define cmp
-    args lbl tolb tolv
+    args lbl tolb tolv noconv
     if ("`tolb'" == "") local tolb 1e-8
     if ("`tolv'" == "") local tolv 1e-6
 
@@ -97,6 +99,7 @@ program define cmp
     matrix b_a = e(b)
     matrix V_a = e(V)
     local N_a = e(N)
+    local conv_ok = ("`e(cmd)'" != "did2s" | "`noconv'" != "" | e(converged) == 1)
 
     capture qui $B
     if (_rc != 0) {
@@ -107,9 +110,14 @@ program define cmp
     matrix b_b = e(b)
     matrix V_b = e(V)
     local N_b = e(N)
+    if ("`e(cmd)'" == "did2s" & "`noconv'" == "" & e(converged) != 1) local conv_ok 0
 
     local pass 0
     mata: _t_rep("`lbl'", `tolb', `tolv', `N_a' == `N_b')
+    if (!`conv_ok') {
+        display as error _col(5) "... but e(converged) = 0 on a design that is identified   **FAIL**"
+        local pass 0
+    }
     _t_tally `pass'
 end
 
@@ -454,13 +462,13 @@ restore
 * nothing is dropped, but the unit and year effects are estimated in two
 * separate components, each with its own arbitrary normalization. Treated
 * rows (units 1-nA in years 11-20 and the rest in years 1-10) straddle the
-* two, so their counterfactuals are not identified.
+* two, so their individual counterfactuals are not identified.
 *
-* Whether the ATT is identified depends on the balance of treated rows. With
-* a 50/50 split, shifting one component's normalization moves the two kinds
-* of treated row by equal and opposite amounts, so the ATT is unchanged: it
-* is identified, the variance solve converges, and v0.7 must match v0.6.
-* With a 30/70 split it is not identified: the solve must not converge.
+* With a 50/50 split, shifting one component's normalization moves the two
+* kinds of treated row by equal and opposite amounts: the ATT is identified
+* (v0.7 and v0.6 agree on b), but each treated row's residual is not, so the
+* clustered SE is not (v0.6 and v0.7 disagree on V, both arbitrarily).
+* did2s must flag it. With a 30/70 split neither b nor V is identified.
 capture program drop mkdisc
 program define mkdisc
     args nA
@@ -480,13 +488,13 @@ preserve
     global A "did2s     y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)"
     global B "did2s_ref y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)"
     qui $A
-    chk "E13 disconnected, ATT identified: nothing dropped" "e(N_noid) == 0" "e(N_noid) = `e(N_noid)'"
-    chk "E14   ... converged" "e(converged) == 1" "e(converged) = `e(converged)'"
-    cmp "E15   ... equals v0.6"
+    chk "E13 disconnected, balanced: nothing dropped" "e(N_noid) == 0" "e(N_noid) = `e(N_noid)'"
+    chk "E14   ... SEs not identified: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
+    cmp "E15   ... b identified: equals v0.6 (V not compared)" 1e-8 1e300 noconv
 
     mkdisc 30
     qui did2s y, first_stage(i.u i.t) second_stage(i.treat) treatment(treat) cluster(u)
-    chk "E16 disconnected, ATT not identified: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
+    chk "E16 disconnected, unbalanced: not converged" "e(converged) == 0" "e(converged) = `e(converged)'"
 restore
 
 preserve
